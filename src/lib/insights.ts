@@ -43,6 +43,36 @@ export function project(summary: Summary, month: string, today: Date): Projectio
   };
 }
 
+export interface Pace {
+  delta_cents: number; // real burndown − ideal straight line; positive = ahead
+  days: number; // that gap expressed in baseline allowances, one decimal
+}
+
+/** How far the burndown's real line sits from the ideal straight one, in DAYS of
+ *  baseline allowance — days is this product's natural currency, and "2,3 days
+ *  ahead" lands where "R$ 340 above the line" doesn't.
+ *  Null when there's no baseline to divide by (sobra ≤ 0) or the month isn't the
+ *  current one — the same line project() draws.
+ *  Arithmetic over the burndown summarize() already built, not a projection:
+ *  no "~", no band, nothing hedged. */
+export function pace(summary: Summary, month: string, today: Date): Pace | null {
+  const [y, m] = month.split("-").map(Number);
+  if (today.getFullYear() !== y || today.getMonth() + 1 !== m) return null;
+  if (summary.per_day_start_cents <= 0) return null;
+
+  const d = today.getDate();
+  const point = summary.burndown[d - 1];
+  if (!point) return null;
+  // The ideal line runs from sobra on day 0 to 0 on the last day, so by the end
+  // of day d it should be at sobra × (n − d)/n.
+  const ideal = Math.round((summary.sobra_cents * (summary.days_in_month - d)) / summary.days_in_month);
+  const delta_cents = point.remaining_cents - ideal;
+  return {
+    delta_cents,
+    days: Math.round((delta_cents / summary.per_day_start_cents) * 10) / 10,
+  };
+}
+
 export interface Anomaly {
   id: number;
   category: string;
@@ -248,6 +278,103 @@ export function forecast(
     });
   }
   return out;
+}
+
+// ---- savings goals -------------------------------------------------------
+// A goal only adds a target to what forecast() already projects. Progress is the
+// realized sobra of the complete months since it was created — what the rows say
+// was left over, not a bank balance: if the money evaporated outside the app,
+// this can't see it. The ETA reuses forecast()'s band and refuses to extrapolate
+// past the 3-month horizon, the same overfit the forecast section rules out.
+
+export interface Goal {
+  id: number;
+  label: string;
+  target_cents: number;
+  by_month: string; // 'YYYY-MM' — the deadline
+  since_month: string; // 'YYYY-MM' — created_at's month
+}
+
+export interface GoalView extends Goal {
+  saved_cents: number; // realized sobra of complete months since since_month
+  months_counted: number;
+  months_left: number; // current month through deadline, inclusive; 0 if passed
+  need_per_month_cents: number; // ceil(remaining / months_left); 0 once done
+  reach_month: string | null; // first projected month the mid path clears target; null beyond horizon
+  horizon_months: number;
+  spend_samples: number; // from the forecast; 0 = the band is a guess
+  done: boolean;
+  health: "verde" | "apertado" | "vermelho" | "sem-projeção";
+}
+
+/** Months from `from` to `to` (to − from), signed. */
+function monthDiff(from: string, to: string): number {
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
+export function goalProgress(
+  goals: Goal[],
+  netByMonth: { month: string; net_cents: number }[],
+  fc: MonthForecast[],
+  month: string,
+): GoalView[] {
+  return goals.map((g) => {
+    // The current month is excluded — its sobra still has the rest of the month
+    // to shrink. "no rows" for a month simply doesn't add to the sum.
+    let saved_cents = 0;
+    let months_counted = 0;
+    for (const n of netByMonth) {
+      if (n.month >= g.since_month && n.month < month) {
+        saved_cents += n.net_cents;
+        months_counted++;
+      }
+    }
+    const remaining = g.target_cents - saved_cents;
+    const done = remaining <= 0;
+
+    const diff = monthDiff(month, g.by_month);
+    const months_left = diff >= 0 ? diff + 1 : 0; // this month through the deadline
+    const need_per_month_cents = done
+      ? 0
+      : months_left > 0
+        ? Math.ceil(remaining / months_left)
+        : remaining; // deadline already gone: it's all owed now
+
+    // Walk the projected months; the first whose cumulative mid-path leftover
+    // carries `saved` up to the target. A month projected to close red saves
+    // nothing (max 0), never withdraws. Never past fc's 3-month horizon.
+    let reach_month: string | null = null;
+    let cum = saved_cents;
+    for (const f of fc) {
+      cum += Math.max(0, f.end_mid_cents);
+      if (cum >= g.target_cents) {
+        reach_month = f.month;
+        break;
+      }
+    }
+
+    let health: GoalView["health"];
+    if (done) health = "verde";
+    else if (fc.length === 0) health = "sem-projeção";
+    else {
+      // The tightest projected month binds: the need must be met every month.
+      // Same vocabulary as forecast(): bad case clears it → verde, only the mid
+      // → apertado, not even the mid → vermelho.
+      const worstLow = Math.min(...fc.map((f) => f.end_low_cents));
+      const worstMid = Math.min(...fc.map((f) => f.end_mid_cents));
+      health = need_per_month_cents <= worstLow ? "verde"
+        : need_per_month_cents <= worstMid ? "apertado"
+          : "vermelho";
+    }
+
+    return {
+      ...g, saved_cents, months_counted, months_left, need_per_month_cents,
+      reach_month, horizon_months: fc.length,
+      spend_samples: fc[0]?.spend_samples ?? 0, done, health,
+    };
+  });
 }
 
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",

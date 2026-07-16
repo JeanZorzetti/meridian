@@ -1,26 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { brlToCents, centsToBRL, type Summary } from "@/lib/budget";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { brlToCents, centsToBRL, type Streak, type Summary } from "@/lib/budget";
 import { CATEGORIES } from "@/lib/categorize";
-import type { Anomaly, MonthForecast, Projection } from "@/lib/insights";
+import type { Anomaly, GoalView, MonthForecast, Pace, Projection } from "@/lib/insights";
+import { Badge } from "@/components/ui/badge";
 
 // ---- types (match the /api/month JSON shape; db.ts is server-only) ----
 interface ApiIncome { id: number; label: string; amount_cents: number }
 interface ApiBill {
-  id: number; name: string; category: string; planned_cents: number;
+  id: number; name: string; category: string; category_source: string; planned_cents: number;
   actual_cents: number | null; paid: boolean; pay_method: string | null;
   installment_current: number | null; installment_total: number | null;
   due_day: number | null; recurring: boolean; sort_order: number;
 }
-interface ApiSpend { id: number; spent_on: string; amount_cents: number; category: string; note: string | null }
+interface ApiSpend {
+  id: number; spent_on: string; amount_cents: number;
+  category: string; category_source: string; note: string | null;
+}
 // `forecast` is the months ahead; today only `lines` renders it. It's in the
 // payload so a panel can use the numbers without a second roundtrip.
 interface ApiInsights {
   projection: Projection | null; anomalies: Anomaly[];
-  forecast: MonthForecast[]; lines: string[];
+  forecast: MonthForecast[]; pace: Pace | null; lines: string[];
 }
 interface MonthData {
   month: string; incomes: ApiIncome[]; bills: ApiBill[]; spends: ApiSpend[];
-  summary: Summary; insights: ApiInsights;
+  summary: Summary; streak: Streak; goals: GoalView[]; insights: ApiInsights;
 }
 
 // Shared <datalist> for every category input. Native autocomplete over a known
@@ -192,6 +196,23 @@ function InsightsPanel({ lines }: { lines: string[] }) {
   );
 }
 
+// ---- pace: how far the burndown sits from the ideal line, in days of baseline
+// allowance. Days is this product's currency — "2,3 dias à frente" lands where
+// "R$ 340 acima da linha" doesn't.
+function PaceLine({ pace }: { pace: Pace }) {
+  if (pace.days === 0) return <p className="text-muted-foreground mt-2 text-xs">Exatamente no ritmo da linha ideal.</p>;
+  const ahead = pace.days > 0;
+  const n = Math.abs(pace.days);
+  const num = n % 1 === 0 ? String(n) : n.toFixed(1).replace(".", ","); // 2,3 — and no ",0" noise
+  return (
+    // Behind the pace is muted, never destructive: it's a direction, not an error.
+    <p className={`mt-2 text-xs ${ahead ? "text-primary" : "text-muted-foreground"}`}>
+      <span className="tnum">{num}</span> {n === 1 ? "dia" : "dias"} {ahead ? "à frente do" : "atrás do"} ritmo ·{" "}
+      <span className="tnum">{centsToBRL(Math.abs(pace.delta_cents))}</span> {ahead ? "acima" : "abaixo"} da linha ideal
+    </p>
+  );
+}
+
 // ---- metric tile ----
 function Metric({ label, value, tone }: { label: string; value: string; tone?: "mint" | "rose" }) {
   const color = tone === "mint" ? "text-primary" : tone === "rose" ? "text-destructive" : "";
@@ -207,12 +228,14 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
   const [month, setMonth] = useState(initial.month);
   const [data, setData] = useState<MonthData>(initial);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // Tone, because the same slot now carries good news: a mint allowance update
+  // dressed in destructive red would be a visual lie.
+  const [toast, setToast] = useState<{ msg: string; tone: "info" | "error" } | null>(null);
   const first = useRef(true);
 
-  const notify = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast((t) => (t === msg ? null : t)), 4000);
+  const notify = useCallback((msg: string, tone: "info" | "error" = "error") => {
+    setToast({ msg, tone });
+    setTimeout(() => setToast((t) => (t?.msg === msg ? null : t)), 4000);
   }, []);
 
   const refresh = useCallback(async (m: string) => {
@@ -278,11 +301,26 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
           onSeedIncome={() => act(() => api("/api/income", "POST", { month, amount_cents: 0 }))} busy={busy} />
       ) : (
         <>
-          {/* hero — the signature number */}
-          <section className="border-border bg-card ring-foreground/10 relative overflow-hidden rounded-xl border p-6 ring-1">
+          {/* hero — the signature number. tilt/glow-mint are the cinematic layer
+              the marketing site uses; glow-mint is reserved by CSS comment for
+              exactly this signature card. data-tilt="2" (not 6): a dense grid of
+              numbers is not a marketing card, so the lean is barely there. */}
+          <section className="border-border bg-card ring-foreground/10 tilt glow-mint relative overflow-hidden rounded-xl border p-6 ring-1"
+            data-tilt="2">
+            <span className="glare" aria-hidden="true" />
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center">
               <div>
-                <p className="eyebrow">Você pode gastar hoje</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="eyebrow">Você pode gastar hoje</p>
+                  {/* 0 is a scolding, not information — it doesn't render. */}
+                  {data.streak.days > 0 && (
+                    <Badge variant="outline" className="border-primary/30 text-primary gap-1"
+                      title="Dias seguidos, até ontem, em que o gasto ficou dentro da mesada daquele dia. Um dia sem gasto lançado conta como dentro.">
+                      <span className="tnum">{data.streak.days}</span>
+                      {data.streak.days === 1 ? "dia dentro" : "dias dentro"}
+                    </Badge>
+                  )}
+                </div>
                 <p className={`tnum mt-2 text-5xl font-semibold tracking-[-0.03em] sm:text-6xl ${s.per_day_cents < 0 ? "text-destructive" : "text-primary"}`}>
                   {centsToBRL(s.per_day_cents)}
                 </p>
@@ -291,8 +329,11 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
                   baseline <span className="tnum">{centsToBRL(s.per_day_start_cents)}</span>/dia
                 </p>
               </div>
-              <div className="h-36 sm:h-40">
-                <Burndown summary={s} month={month} projection={ins.projection} />
+              <div>
+                <div className="h-36 sm:h-40">
+                  <Burndown summary={s} month={month} projection={ins.projection} />
+                </div>
+                {ins.pace && <PaceLine pace={ins.pace} />}
               </div>
             </div>
             <div className="border-border mt-6 grid grid-cols-2 rounded-lg border sm:grid-cols-5">
@@ -308,19 +349,24 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
             <BillsPanel month={month} groups={groups} incomes={data.incomes} act={act} />
             <div className="flex flex-col gap-6">
-              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} />
-              <CategoryBreakdown data={s.by_category} />
+              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} summary={s} notify={notify} />
+              <CategoryBreakdown data={s.by_category} rows={[...data.bills, ...data.spends]} />
             </div>
           </div>
+          <GoalsPanel goals={data.goals} act={act} />
           <Trends />
         </>
       )}
       {busy && <div className="text-muted-foreground fixed bottom-4 right-4 text-xs">salvando…</div>}
       {toast && (
         <div role="alert"
-          className="border-destructive/40 bg-destructive/10 text-destructive fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border px-4 py-2 text-sm shadow-lg">
+          className={`tnum fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border px-4 py-2 text-sm shadow-lg ${
+            toast.tone === "info"
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-destructive/40 bg-destructive/10 text-destructive"
+          }`}>
           <button onClick={() => setToast(null)} className="flex items-center gap-2" aria-label="fechar aviso">
-            {toast} <span className="text-destructive/60">×</span>
+            {toast.msg} <span className="opacity-60">×</span>
           </button>
         </div>
       )}
@@ -360,14 +406,31 @@ function BillsPanel({ month, groups, incomes, act }: {
   act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  // Reconciling a bill (filling its real amount) turns closing the month into a
+  // bar with an end. `actual_cents != null` is the whole definition.
+  const total = groups.reduce((a, [, bs]) => a + bs.length, 0);
+  const done = groups.reduce((a, [, bs]) => a + bs.filter((b) => b.actual_cents != null).length, 0);
   return (
     <section className="border-border bg-card ring-foreground/10 rounded-xl border ring-1">
-      <div className="border-border flex items-center justify-between border-b px-4 py-3">
+      <div className="border-border flex items-center justify-between gap-3 border-b px-4 py-3">
         <h2 className="text-sm font-semibold tracking-[-0.01em]">Contas</h2>
-        <button onClick={() => setAdding((a) => !a)}
-          className="border-border hover:bg-accent inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs">
-          + nova conta
-        </button>
+        <div className="flex items-center gap-2.5">
+          {total > 0 && (done === total
+            ? <Badge variant="secondary" title="Toda conta tem o valor real conciliado.">mês fechado</Badge>
+            : (
+              <span className="text-muted-foreground flex items-center gap-2 text-xs"
+                title="Contas com o valor real preenchido, de todas as contas do mês.">
+                <span className="tnum">{done}/{total}</span> conciliadas
+                <span className="bg-surface-1 h-1.5 w-16 overflow-hidden rounded-full">
+                  <span className="bg-primary block h-full rounded-full" style={{ width: `${(done / total) * 100}%` }} />
+                </span>
+              </span>
+            ))}
+          <button onClick={() => setAdding((a) => !a)}
+            className="border-border hover:bg-accent inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-xs">
+            + nova conta
+          </button>
+        </div>
       </div>
 
       {/* incomes */}
@@ -571,12 +634,21 @@ function AddBill({ month, onDone, act }: {
 
 // ---- spend-by-category breakdown (bars ∝ largest category) ----
 const CAT_COLORS = ["#3ecf8e", "#6ee7b7", "#f0616d", "#fbbf77", "#8ab4f8", "#c4b5fd", "#94a3b8"];
-function CategoryBreakdown({ data }: { data: { category: string; cents: number }[] }) {
+function CategoryBreakdown({ data, rows }: {
+  data: { category: string; cents: number }[];
+  rows: { category_source: string }[]; // every bill + spend, for the accuracy line
+}) {
   const total = data.reduce((a, c) => a + c.cents, 0);
   if (total <= 0) return null;
   const max = data[0].cents; // data is sorted desc by summarize()
+  // "Accepted", never "correct". A row the user never touched keeps its guessed
+  // source — not touching it isn't confirming it's right.
+  const accepted = rows.filter((r) => r.category_source !== "user").length;
+  // ponytail: a .reveal target's className must stay a static literal — the IO
+  // writes is-visible onto the node, and a re-render with a different className
+  // would wipe the class and hide the card for good (it was already unobserved).
   return (
-    <section className="border-border bg-card ring-foreground/10 h-fit rounded-xl border ring-1">
+    <section className="reveal border-border bg-card ring-foreground/10 h-fit rounded-xl border ring-1">
       <div className="border-border flex items-center justify-between border-b px-4 py-3">
         <h2 className="text-sm font-semibold tracking-[-0.01em]">Gasto por categoria</h2>
         <span className="tnum text-muted-foreground text-xs">{centsToBRL(total)}</span>
@@ -591,12 +663,120 @@ function CategoryBreakdown({ data }: { data: { category: string; cents: number }
               </span>
             </div>
             <div className="bg-surface-1 h-2 overflow-hidden rounded-full">
-              <div className="h-full rounded-full"
-                style={{ width: `${(c.cents / max) * 100}%`, background: CAT_COLORS[i % CAT_COLORS.length] }} />
+              {/* .bar grows from 0 to --w once the card reveals (global.css). */}
+              <div className="bar h-full rounded-full"
+                style={{ "--w": `${(c.cents / max) * 100}%`, background: CAT_COLORS[i % CAT_COLORS.length] } as CSSProperties} />
             </div>
           </div>
         ))}
       </div>
+      {rows.length > 0 && (
+        <div className="border-border text-muted-foreground border-t px-4 py-2.5 text-xs"
+          title={
+            "Linhas que o Meridian categorizou e você não corrigiu, deste mês. " +
+            "Não é taxa de acerto: uma sugestão errada que você não olhou conta como aceita, " +
+            "e corrigir apaga a própria evidência (a linha vira 'user' e sai da conta). " +
+            "Uma categoria que você digitou de saída também conta como não-aceita — o viés é pessimista de propósito."
+          }>
+          <span className="tnum">{accepted}</span> de <span className="tnum">{rows.length}</span> sugestões aceitas
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---- savings goals: a target + a hedged ETA drawn from the forecast band ----
+const HEALTH_BADGE: Record<GoalView["health"], "default" | "secondary" | "destructive" | "outline"> = {
+  verde: "default", apertado: "secondary", vermelho: "destructive", "sem-projeção": "outline",
+};
+
+// The projection half, kept as hedged as the forecast lines: a band and a range,
+// never "você fecha com X", and never an ETA past the 3 projected months.
+function GoalProjection({ goal: g }: { goal: GoalView }) {
+  if (g.done) return <p className="text-primary mt-0.5 text-xs">Meta atingida.</p>;
+  const need = g.months_left > 0
+    ? <>Faltam <span className="tnum">{g.months_left}</span> {g.months_left === 1 ? "mês" : "meses"} — precisa de ~<span className="tnum">{centsToBRL(g.need_per_month_cents)}</span>/mês.</>
+    : <>Prazo vencido — faltam <span className="tnum">{centsToBRL(g.target_cents - g.saved_cents)}</span>.</>;
+  let projection: ReactNode;
+  if (g.spend_samples === 0) {
+    projection = "Sem histórico de gastos para projetar o ritmo.";
+  } else {
+    const eta = g.reach_month
+      ? <>No meio da faixa você chega em ~{monthLabel(g.reach_month)}.</>
+      : <>A projeção de {g.horizon_months} meses não alcança a meta.</>;
+    projection = <>Ritmo projetado: {g.health}. {eta}</>;
+  }
+  return <p className="text-muted-foreground mt-0.5 text-xs">{need} {projection}</p>;
+}
+
+function GoalRow({ goal: g, act }: {
+  goal: GoalView; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const pct = Math.max(0, Math.min(100, Math.round((g.saved_cents / g.target_cents) * 100)));
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{g.label}</span>
+        <div className="flex items-center gap-2">
+          <Badge variant={g.done ? "default" : HEALTH_BADGE[g.health]}>{g.done ? "atingida" : g.health}</Badge>
+          <button aria-label="excluir meta"
+            onClick={() => confirm(`Excluir a meta “${g.label}”?`) && act(() => api(`/api/goals/${g.id}`, "DELETE"))}
+            className="text-foreground/25 hover:text-destructive focus-visible:text-destructive text-lg leading-none">×</button>
+        </div>
+      </div>
+      {/* progress: realized sobra of complete months vs the target */}
+      <div className="bg-surface-1 mt-2 h-2 overflow-hidden rounded-full">
+        <div className="bg-primary h-full rounded-full" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-muted-foreground mt-1.5 text-xs">
+        <span className="tnum">{centsToBRL(g.saved_cents)}</span> de <span className="tnum">{centsToBRL(g.target_cents)}</span>
+        {" · "}{g.months_counted} {g.months_counted === 1 ? "mês fechado" : "meses fechados"} desde a criação
+      </p>
+      <GoalProjection goal={g} />
+    </div>
+  );
+}
+
+function GoalsPanel({ goals, act }: {
+  goals: GoalView[]; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState("");
+  const [target, setTarget] = useState("");
+  const [byMonth, setByMonth] = useState("");
+
+  const submit = () => {
+    const target_cents = brlToCents(target);
+    if (!label.trim() || target_cents <= 0 || !/^\d{4}-\d{2}$/.test(byMonth)) return;
+    act(() => api("/api/goals", "POST", { label: label.trim(), target_cents, by_month: byMonth }))
+      .then(() => { setLabel(""); setTarget(""); setByMonth(""); setAdding(false); });
+  };
+
+  return (
+    <section className="reveal border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
+      <div className={`flex items-center justify-between px-4 py-3 ${goals.length || adding ? "border-border border-b" : ""}`}>
+        <h2 className="text-sm font-semibold tracking-[-0.01em]">Metas</h2>
+        <button onClick={() => setAdding((a) => !a)}
+          className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">+ nova meta</button>
+      </div>
+      {adding && (
+        <div className="border-border bg-surface-1/40 flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+          <input autoFocus placeholder="nome (ex: Reserva)" value={label} onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+          <input placeholder="alvo R$ 0,00" value={target} inputMode="decimal" onChange={(e) => setTarget(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-32 text-right`} />
+          <input type="month" value={byMonth} onChange={(e) => setByMonth(e.target.value)}
+            aria-label="prazo" className={`${INPUT} tnum`} />
+          <button onClick={submit}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+          <button onClick={() => setAdding(false)} className="text-muted-foreground text-sm">cancelar</button>
+        </div>
+      )}
+      {goals.length > 0 && (
+        <div className="divide-border flex flex-col divide-y">
+          {goals.map((g) => <GoalRow key={g.id} goal={g} act={act} />)}
+        </div>
+      )}
     </section>
   );
 }
@@ -619,7 +799,7 @@ function Trends() {
   const bw = step * 0.55;
 
   return (
-    <section className="border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
+    <section className="reveal border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
       <div className="border-border flex items-center justify-between border-b px-4 py-3">
         <h2 className="text-sm font-semibold tracking-[-0.01em]">Tendência mensal</h2>
         <span className="text-muted-foreground text-xs">entrada − comprometido − gasto</span>
@@ -651,9 +831,10 @@ function Trends() {
 }
 
 // ---- daily log ----
-function DailyPanel({ month, spends, anomalies, act }: {
+function DailyPanel({ month, spends, anomalies, act, summary, notify }: {
   month: string; spends: ApiSpend[]; anomalies: Anomaly[];
   act: (fn: () => Promise<unknown>) => Promise<void>;
+  summary: Summary; notify: (msg: string, tone?: "info" | "error") => void;
 }) {
   const inMonth = todayISO().startsWith(month) ? todayISO() : `${month}-01`;
   const [date, setDate] = useState(inMonth);
@@ -667,6 +848,17 @@ function DailyPanel({ month, spends, anomalies, act }: {
   const submit = () => {
     const cents = brlToCents(amount);
     if (cents <= 0) return;
+    // Close the feedback loop before the refetch: show what this spend costs
+    // tomorrow's allowance. Exact arithmetic over the current summary — tomorrow
+    // days_remaining drops by 1 and remaining drops by the amount, the same
+    // formula summarize() uses, one day ahead.
+    // ponytail: assumes no bill/income changes before midnight.
+    const d = summary.days_remaining - 1;
+    if (d >= 1 && date.startsWith(month)) {
+      const before = Math.floor(summary.remaining_cents / d);
+      const after = Math.floor((summary.remaining_cents - cents) / d);
+      notify(`Mesada de amanhã: ${centsToBRL(before)} → ${centsToBRL(after)}`, "info");
+    }
     // No category sent -> the server infers it from the note (src/lib/categorize.ts).
     act(() => api("/api/spends", "POST", {
       spent_on: date, amount_cents: cents, category: cat.trim() || null, note: note.trim() || null,

@@ -2,8 +2,8 @@
 import assert from "node:assert";
 import { summarize } from "./budget.ts";
 import {
-  anomalies, forecast, insights, project,
-  type ForecastBill, type HistorySpend, type IdSpend,
+  anomalies, forecast, goalProgress, insights, pace, project,
+  type ForecastBill, type Goal, type HistorySpend, type IdSpend, type MonthForecast,
 } from "./insights.ts";
 import { categorize } from "./categorize.ts";
 
@@ -38,6 +38,43 @@ assert.equal(project(sum([], new Date(2026, 5, 16)), "2026-07", new Date(2026, 5
 assert.equal(project(sum([], new Date(2026, 7, 16)), "2026-07", new Date(2026, 7, 16)), null, "past month");
 assert.equal(project(sum([], new Date(2026, 6, 2)), "2026-07", new Date(2026, 6, 2)), null, "day 2 is noise");
 assert.ok(project(sum([], new Date(2026, 6, 3)), "2026-07", new Date(2026, 6, 3)) !== null, "day 3 projects");
+
+// --- pace ---
+{
+  // The identity that keeps the formula honest: baseline is 37.80/day, and by
+  // day 10 with nothing spent you are exactly 10 days ahead. If the ideal line
+  // or the divisor ever drifts, this assert is the one that falls.
+  const today = new Date(2026, 6, 10);
+  const p = pace(sum([], today), "2026-07", today)!;
+  assert.equal(p.days, 10);
+  assert.equal(p.delta_cents, 117182 - Math.round((117182 * 21) / 31));
+}
+{
+  // Spending exactly the baseline every day tracks the ideal line: pace ≈ 0.
+  const today = new Date(2026, 6, 10);
+  const spends: IdSpend[] = Array.from({ length: 10 }, (_, i) => ({
+    id: i + 1, spent_on: `2026-07-${String(i + 1).padStart(2, "0")}`,
+    amount_cents: 3780, category: "Pessoal",
+  }));
+  assert.equal(pace(sum(spends, today), "2026-07", today)!.days, 0);
+}
+{
+  // Behind the pace reads negative — a direction, not an error.
+  const today = new Date(2026, 6, 10);
+  const spends: IdSpend[] = [{ id: 1, spent_on: "2026-07-02", amount_cents: 80000, category: "Pessoal" }];
+  const p = pace(sum(spends, today), "2026-07", today)!;
+  assert.ok(p.days < 0 && p.delta_cents < 0);
+}
+// Same guards as project(): hindsight isn't pace, and sobra ≤ 0 has no baseline
+// to divide by.
+assert.equal(pace(sum([], new Date(2026, 7, 16)), "2026-07", new Date(2026, 7, 16)), null, "past month");
+assert.equal(pace(sum([], new Date(2026, 5, 16)), "2026-07", new Date(2026, 5, 16)), null, "future month");
+{
+  const today = new Date(2026, 6, 10);
+  const broke = summarize([{ amount_cents: 100000 }], [{ planned_cents: 200000, actual_cents: null, paid: false }],
+    [], "2026-07", today);
+  assert.equal(pace(broke, "2026-07", today), null, "no baseline, no pace");
+}
 
 // --- anomalies ---
 const hist = (category: string, ...amounts: number[]): HistorySpend[] =>
@@ -189,6 +226,64 @@ assert.equal(forecast([fb(50000, false)], 750000, [], [], "2026-07", 1)[0].commi
   assert.ok(aug.includes("~") && aug.includes("entre"), "hedged: a midpoint and a band, not a promise");
   assert.ok(aug.includes("1 parcela termina"), "reports the money that frees up");
   assert.ok(!lines.some((l) => l.includes("2 parcela termina")), "singular/plural must agree");
+}
+
+// --- goalProgress ---
+// Only end_mid/end_low/spend_samples/month are read; the rest fills with zeros.
+const mf = (month: string, end_mid_cents: number, end_low_cents = end_mid_cents, spend_samples = 5): MonthForecast =>
+  ({ month, income_cents: 0, committed_cents: 0, sobra_cents: 0,
+     spend_low_cents: 0, spend_mid_cents: 0, spend_high_cents: 0,
+     end_low_cents, end_mid_cents, end_high_cents: end_mid_cents,
+     health: "verde", spend_samples, bill_noise_cents: 0, ends_cents: 0, ends_count: 0 });
+const goal = (target_cents: number, by_month: string, since_month: string): Goal =>
+  ({ id: 1, label: "Reserva", target_cents, by_month, since_month });
+
+{
+  const net = [
+    { month: "2026-04", net_cents: 100000 },
+    { month: "2026-05", net_cents: 120000 },
+    { month: "2026-06", net_cents: 80000 },
+    { month: "2026-07", net_cents: 999999 }, // the current month must NOT count
+  ];
+  const fc = [mf("2026-08", 100000), mf("2026-09", 100000), mf("2026-10", 100000)];
+  const g = goalProgress([goal(500000, "2026-10", "2026-04")], net, fc, "2026-07")[0];
+  assert.equal(g.saved_cents, 300000, "3 complete months since April, current month excluded");
+  assert.equal(g.months_counted, 3);
+  assert.equal(g.months_left, 4, "Jul through Oct, inclusive");
+  assert.equal(g.need_per_month_cents, Math.ceil((500000 - 300000) / 4)); // 50000
+}
+{
+  // No forecast at all -> the health admits it rather than inventing one.
+  const g = goalProgress([goal(500000, "2026-10", "2026-01")], [], [], "2026-07")[0];
+  assert.equal(g.health, "sem-projeção");
+}
+{
+  // Health tiers. saved 0 -> remaining 200000 over 4 months -> need 50000/month.
+  const net = [{ month: "2026-04", net_cents: 0 }];
+  const tiers = (mid: number, low: number) =>
+    goalProgress([goal(200000, "2026-10", "2026-04")], net,
+      [mf("2026-08", mid, low), mf("2026-09", mid, low), mf("2026-10", mid, low)], "2026-07")[0];
+  assert.equal(tiers(90000, 60000).need_per_month_cents, 50000);
+  assert.equal(tiers(90000, 60000).health, "verde", "even the bad case clears the need");
+  assert.equal(tiers(70000, 40000).health, "apertado", "bad case dips below, mid holds");
+  assert.equal(tiers(30000, 10000).health, "vermelho", "not even the mid meets it");
+}
+{
+  // reach_month lands inside the horizon; an out-of-reach target stays null and
+  // never invents an ETA past the 3 projected months. This is the test that
+  // stops someone "fixing" it by extrapolating month 4.
+  const net = [{ month: "2026-06", net_cents: 100000 }];
+  const fc = [mf("2026-08", 100000), mf("2026-09", 100000), mf("2026-10", 100000)];
+  assert.equal(goalProgress([goal(250000, "2026-12", "2026-06")], net, fc, "2026-07")[0].reach_month, "2026-09");
+  assert.equal(goalProgress([goal(900000, "2027-06", "2026-06")], net, fc, "2026-07")[0].reach_month, null,
+    "the 3 projected months don't reach it — no invented ETA");
+}
+{
+  // Already past the target: done, verde, nothing more owed per month.
+  const g = goalProgress([goal(500000, "2026-10", "2026-06")], [{ month: "2026-06", net_cents: 600000 }], [], "2026-07")[0];
+  assert.equal(g.done, true);
+  assert.equal(g.health, "verde");
+  assert.equal(g.need_per_month_cents, 0);
 }
 
 // --- categorize (the shared copy the API and the scripts both use) ---

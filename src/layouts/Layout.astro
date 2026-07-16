@@ -50,6 +50,12 @@ const {
           .forEach((el) => io.observe(el));
       observe();
       document.addEventListener("astro:after-swap", observe);
+      // React (the /admin panel) mounts .reveal nodes after this script runs.
+      // observe() is idempotent — it filters :not(.is-visible) and io.observe on
+      // an already-watched node is a no-op — so a re-scan per mutation batch is
+      // enough. ponytail: rescans the whole doc per batch (~200 nodes, sub-ms);
+      // switch to entry.addedNodes if it ever shows up in a profile.
+      new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
     </script>
     <script>
       import "../scripts/interactions.ts";

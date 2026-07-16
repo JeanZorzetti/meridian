@@ -54,12 +54,37 @@ create table if not exists daily_spends (
   amount_cents int not null,
   category text not null default 'Outros',
   category_source text not null default 'auto',
-  note text
+  note text,
+  -- Nullable on purpose: rows that predate this column have no known creation
+  -- time, and "don't know" isn't "the day of the migration". ADD COLUMN with a
+  -- DEFAULT would stamp every existing row with the migration's timestamp — the
+  -- same lie the rest of this schema avoids. New inserts get now() via the
+  -- default set below.
+  created_at timestamptz
 );
 -- migrations for DBs created before these columns existed (idempotent)
 alter table daily_spends add column if not exists category text not null default 'Outros';
 alter table daily_spends add column if not exists category_source text not null default 'auto';
 alter table bills        add column if not exists category_source text not null default 'auto';
+-- Two steps, never `add column ... default now()`: add nullable (old rows stay
+-- NULL — honestly unknown), then set the default so only future inserts are
+-- stamped. Idempotent: the add is a no-op once the column exists, and setting
+-- the same default again changes nothing.
+alter table daily_spends add column if not exists created_at timestamptz;
+alter table daily_spends alter column created_at set default now();
+
+-- Savings goals: a target and a deadline. Progress is the realized sobra of the
+-- complete months since created_at (computed in insights.ts), and the ETA reuses
+-- the same forecast band the rest of the app hedges with.
+create table if not exists goals (
+  id serial primary key,
+  user_id int not null references users(id) on delete cascade,
+  label text not null,
+  target_cents int not null,
+  by_month text not null,               -- 'YYYY-MM' — the deadline
+  created_at timestamptz not null default now()  -- new table: every row has one
+);
+create index if not exists idx_goals_user on goals(user_id);
 
 -- The category model's corpus: user-confirmed rows only.
 create index if not exists idx_bills_confirmed on bills(user_id) where category_source = 'user';

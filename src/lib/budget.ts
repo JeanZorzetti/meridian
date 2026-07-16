@@ -79,6 +79,76 @@ export function daysRemaining(month: string, today: Date): number {
   return Math.max(1, total - td + 1); // current month
 }
 
+export interface MonthLedger {
+  month: string; // 'YYYY-MM'
+  sobra_cents: number; // income − committed: the month's discretionary pool
+  spends: Spend[];
+}
+
+export interface Streak {
+  days: number;
+  since: string | null; // 'YYYY-MM-DD' — oldest day of the run
+  through: string | null; // newest day of the run (yesterday, while it's alive)
+}
+
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Consecutive days, up to yesterday, whose spend stayed within that day's
+ *  allowance — the same number the hero showed that morning, rebuilt with the
+ *  formula summarize() uses: floor(remaining before the day / days still to go).
+ *
+ *  Crosses months on purpose: a streak resetting on the 1st would wipe 20 days
+ *  the user never blew. Only months carrying an income/bill row take part — no
+ *  sobra means no allowance, and "no rows" isn't "was disciplined" (the line
+ *  db.ts draws for spend history). Today never counts: it's still open and an
+ *  11pm spend can still blow it — today's status is the hero number itself.
+ *
+ *  ponytail: a day with no rows counts as inside. In the rows, "spent nothing"
+ *  and "forgot to log" are the same record — none — so this rewards silence.
+ *  daily_spends.created_at (added without UI for exactly this) is the signal
+ *  that separates them: with it the rule becomes "logged that day AND stayed
+ *  within". Switch once enough created_at history exists that the stricter rule
+ *  won't retroactively zero a real streak. */
+export function streak(ledgers: MonthLedger[], today: Date): Streak {
+  const days = new Map<string, { spent: number; allowance: number }>();
+  for (const l of ledgers) {
+    const n = daysInMonth(l.month);
+    const byDay = new Array(n + 1).fill(0);
+    for (const s of l.spends) {
+      const d = parseInt(s.spent_on.slice(8, 10), 10);
+      if (d >= 1 && d <= n) byDay[d] += s.amount_cents;
+    }
+    let remaining = l.sobra_cents;
+    for (let d = 1; d <= n; d++) {
+      days.set(`${l.month}-${String(d).padStart(2, "0")}`, {
+        spent: byDay[d],
+        allowance: Math.floor(remaining / (n - d + 1)),
+      });
+      remaining -= byDay[d];
+    }
+  }
+
+  let count = 0;
+  let since: string | null = null;
+  let through: string | null = null;
+  const cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  for (;;) {
+    const day = days.get(isoDate(cursor));
+    // A missing day stops the run: either a month with no rows or one outside
+    // the ledger window — neither is evidence of anything.
+    // max(0, ·) keeps a month whose sobra went negative from being a dead zone
+    // where even a zero-spend day breaks the run.
+    if (!day || day.spent > Math.max(0, day.allowance)) break;
+    count++;
+    through ??= isoDate(cursor);
+    since = isoDate(cursor);
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return { days: count, since, through };
+}
+
 export function summarize(
   incomes: Income[],
   bills: Bill[],

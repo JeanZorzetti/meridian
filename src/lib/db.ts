@@ -1,7 +1,7 @@
 import postgres from "postgres";
-import { summarize } from "./budget.ts";
+import { streak, summarize, type MonthLedger } from "./budget.ts";
 import { buildModel, type CategoryModel } from "./categorize.ts";
-import { anomalies, forecast, insights, project } from "./insights.ts";
+import { anomalies, forecast, goalProgress, insights, pace, project, type Goal } from "./insights.ts";
 
 // Server-only. `import.meta.env` is populated from .env in dev/build and is
 // undefined when this module is imported from a plain node script; `process.env`
@@ -54,6 +54,7 @@ export interface DbSpend {
   spent_on: string; // 'YYYY-MM-DD'
   amount_cents: number;
   category: string;
+  category_source: string; // 'auto' | 'llm' | 'user' — see db/schema.sql
   note: string | null;
 }
 
@@ -66,7 +67,8 @@ export async function getMonthSnapshot(userId: number, month: string) {
                          due_day, recurring, sort_order
                   from bills where user_id = ${userId} and month = ${month}
                   order by sort_order, id`,
-    sql<DbSpend[]>`select id, to_char(spent_on, 'YYYY-MM-DD') as spent_on, amount_cents, category, note
+    sql<DbSpend[]>`select id, to_char(spent_on, 'YYYY-MM-DD') as spent_on, amount_cents,
+                          category, category_source, note
                    from daily_spends where user_id = ${userId} and month = ${month}
                    order by spent_on, id`,
   ]);
@@ -83,6 +85,38 @@ export async function getSpendHistory(userId: number) {
            to_char(spent_on, 'YYYY-MM-DD') as spent_on
     from daily_spends where user_id = ${userId}`;
   return [...rows];
+}
+
+export interface MonthBaseline {
+  month: string;
+  income_cents: number;
+  committed_cents: number;
+}
+
+/** Income and committed totals per month. The streak needs to know what a day in
+ *  June was allowed to spend, and a month's sobra is the only way to know — the
+ *  spends themselves come from getSpendHistory(). Uses the same bill cost as
+ *  summarize(): actual once reconciled, planned until then.
+ *  ponytail: two grouped queries over the (user_id, month) indexes, single-user.
+ *  Becomes a materialized view the day it hurts. */
+export async function getMonthlyBaselines(userId: number): Promise<MonthBaseline[]> {
+  const [incomes, committed] = await Promise.all([
+    sql<{ month: string; cents: number }[]>`
+      select month, coalesce(sum(amount_cents),0)::int as cents
+      from incomes where user_id = ${userId} group by month`,
+    sql<{ month: string; cents: number }[]>`
+      select month, coalesce(sum(coalesce(actual_cents, planned_cents)),0)::int as cents
+      from bills where user_id = ${userId} group by month`,
+  ]);
+  const byMonth = new Map<string, MonthBaseline>();
+  const touch = (month: string) => {
+    let e = byMonth.get(month);
+    if (!e) byMonth.set(month, (e = { month, income_cents: 0, committed_cents: 0 }));
+    return e;
+  };
+  for (const r of incomes) touch(r.month).income_cents = r.cents;
+  for (const r of committed) touch(r.month).committed_cents = r.cents;
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
 /** The category model's corpus: every text the user confirmed a category for —
@@ -106,42 +140,69 @@ export async function getCategoryModel(userId: number): Promise<CategoryModel> {
  *  SSR page (admin.astro) and the client refetch (/api/month/[month]) hand to
  *  BudgetApp — they must not drift apart. */
 export async function getMonthView(userId: number, month: string, today: Date) {
-  const [snap, history, committedHistory] = await Promise.all([
+  const [snap, history, baselines, goals] = await Promise.all([
     getMonthSnapshot(userId, month),
     getSpendHistory(userId),
-    // Past months' bill totals, chronological — the forecast measures how much
-    // the committed total drifts from the schedule out of these.
-    sql<{ cents: number }[]>`
-      select coalesce(sum(coalesce(actual_cents, planned_cents)),0)::int as cents
-      from bills where user_id = ${userId} and month < ${month}
-      group by month order by month`,
+    getMonthlyBaselines(userId),
+    // to_char keeps since_month == created_at's month with no redundant column.
+    sql<Goal[]>`select id, label, target_cents, by_month,
+                       to_char(created_at, 'YYYY-MM') as since_month
+                from goals where user_id = ${userId} order by by_month, id`,
   ]);
   const summary = summarize(snap.incomes, snap.bills, snap.spends, month, today);
   const projection = project(summary, month, today);
   const anoms = anomalies(history, snap.spends);
 
+  // Every spend under the month it belongs to — feeds the forecast's band and
+  // the streak's ledgers alike.
+  const spendsByMonth = new Map<string, DbSpend[]>();
+  for (const s of history) {
+    const m = s.spent_on.slice(0, 7);
+    const arr = spendsByMonth.get(m);
+    if (arr) arr.push(s);
+    else spendsByMonth.set(m, [s]);
+  }
+
   // Totals of *complete* months only: `month` itself is still being lived, and
   // a half-spent month would drag the median down. A month with no rows at all
   // is absent rather than zero — "didn't log" isn't "didn't spend".
-  const byMonth = new Map<string, number>();
-  for (const s of history) {
-    const m = s.spent_on.slice(0, 7);
-    if (m < month) byMonth.set(m, (byMonth.get(m) ?? 0) + s.amount_cents);
-  }
+  const pastSpendTotals = [...spendsByMonth]
+    .filter(([m]) => m < month)
+    .map(([, ss]) => ss.reduce((a, s) => a + s.amount_cents, 0));
+
   // Forecasting a month that isn't the current one would be hindsight, not a
   // projection — project() draws the same line.
   const isCurrent = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}` === month;
+  // getMonthlyBaselines() returns every month; forecast() takes past *complete*
+  // months only, chronological (see insights.ts). This filter used to live in
+  // the SQL as `where month < ${month}` — without it here, billNoise() swallows
+  // the month in progress and the band shifts with nobody noticing.
   const fc = isCurrent
-    ? forecast(snap.bills, summary.income_cents, [...byMonth.values()],
-        committedHistory.map((r) => r.cents), month)
+    ? forecast(snap.bills, summary.income_cents, pastSpendTotals,
+        baselines.filter((b) => b.month < month).map((b) => b.committed_cents), month)
     : [];
+
+  const monthSpent = (m: string) => (spendsByMonth.get(m) ?? []).reduce((a, s) => a + s.amount_cents, 0);
+  const ledgers: MonthLedger[] = baselines.map((b) => ({
+    month: b.month,
+    sobra_cents: b.income_cents - b.committed_cents,
+    spends: spendsByMonth.get(b.month) ?? [],
+  }));
+  // Realized net per month — what actually stayed unspent. goalProgress() keeps
+  // only the complete months (before `month`) for a goal's saved total.
+  const netByMonth = baselines.map((b) => ({
+    month: b.month,
+    net_cents: b.income_cents - b.committed_cents - monthSpent(b.month),
+  }));
 
   return {
     month,
     ...snap,
     summary,
+    streak: streak(ledgers, today),
+    goals: goalProgress([...goals], netByMonth, fc, month),
     insights: {
-      projection, anomalies: anoms, forecast: fc,
+      projection, anomalies: anoms, forecast: fc, pace: pace(summary, month, today),
       lines: insights(summary, snap.bills, projection, anoms, fc, month, today),
     },
   };
