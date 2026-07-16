@@ -1,0 +1,137 @@
+---
+import Reveal from "./Reveal.astro";
+import Icon from "./Icon.astro";
+---
+
+<section id="tour" class="wrap scroll-mt-24 py-24 md:py-32">
+  <div class="max-w-2xl">
+    <p class="eyebrow mb-4">How it works</p>
+    <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
+      From scattered to clear, in three steps.
+    </h2>
+  </div>
+
+  <div class="mt-16 space-y-16 md:space-y-24">
+    <!-- 01 Connect -->
+    <Reveal>
+      <div class="grid items-center gap-8 md:grid-cols-2 md:gap-16">
+        <div>
+          <span class="tnum text-profit/80 text-sm">01</span>
+          <div class="bg-border mt-2 mb-5 h-px w-10"></div>
+          <h3 class="text-2xl font-medium tracking-[-0.02em]">
+            Link every account in minutes
+          </h3>
+          <p class="text-muted-foreground mt-3 max-w-md leading-relaxed">
+            Connect banks, cards, brokerages, and wallets with read-only,
+            bank-grade access. Meridian never moves your money — it only reads
+            the balance.
+          </p>
+        </div>
+        <div class="border-border bg-surface-1 rounded-xl border p-5">
+          <p class="eyebrow mb-4">Add accounts</p>
+          <div class="space-y-2.5">
+            {
+              [
+                { n: "Chase", s: "Connected" },
+                { n: "Fidelity", s: "Connected" },
+                { n: "Coinbase", s: "Syncing…" },
+              ].map((a) => (
+                <div class="border-border flex items-center justify-between rounded-lg border px-4 py-3">
+                  <span class="text-sm">{a.n}</span>
+                  <span
+                    class:list={[
+                      "inline-flex items-center gap-1.5 font-mono text-[11px]",
+                      a.s === "Connected"
+                        ? "text-profit"
+                        : "text-muted-foreground",
+                    ]}
+                  >
+                    {a.s === "Connected" && <Icon name="check" class="h-3 w-3" />}
+                    {a.s}
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+    </Reveal>
+
+    <!-- 02 See -->
+    <Reveal>
+      <div class="grid items-center gap-8 md:grid-cols-2 md:gap-16">
+        <div class="md:order-2">
+          <span class="tnum text-profit/80 text-sm">02</span>
+          <div class="bg-border mt-2 mb-5 h-px w-10"></div>
+          <h3 class="text-2xl font-medium tracking-[-0.02em]">
+            Watch it reconcile in real time
+          </h3>
+          <p class="text-muted-foreground mt-3 max-w-md leading-relaxed">
+            Balances, transactions, and holdings merge into one live view.
+            Every figure is tabular, timestamped, and yours to drill into.
+          </p>
+        </div>
+        <div class="border-border bg-surface-1 rounded-xl border p-6 md:order-1">
+          <div class="flex items-baseline justify-between">
+            <p class="eyebrow">This month</p>
+            <span class="text-profit font-mono text-xs">+$3,410</span>
+          </div>
+          <p class="tnum mt-3 text-3xl font-semibold">$128,540</p>
+          <div class="border-border mt-5 grid grid-cols-3 gap-3 border-t pt-4">
+            {
+              [
+                { l: "Income", v: "$9,200" },
+                { l: "Spending", v: "$4,200" },
+                { l: "Saved", v: "$1,850", accent: true },
+              ].map((k) => (
+                <div>
+                  <p class="eyebrow">{k.l}</p>
+                  <p class:list={["tnum mt-1.5 text-sm", k.accent && "text-profit"]}>
+                    {k.v}
+                  </p>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+    </Reveal>
+
+    <!-- 03 Act -->
+    <Reveal>
+      <div class="grid items-center gap-8 md:grid-cols-2 md:gap-16">
+        <div>
+          <span class="tnum text-profit/80 text-sm">03</span>
+          <div class="bg-border mt-2 mb-5 h-px w-10"></div>
+          <h3 class="text-2xl font-medium tracking-[-0.02em]">
+            Decide with the whole picture
+          </h3>
+          <p class="text-muted-foreground mt-3 max-w-md leading-relaxed">
+            Forecasts, alerts, and plain-language insights turn the numbers into
+            the next move — before the month gets away from you.
+          </p>
+        </div>
+        <div class="space-y-3">
+          <div class="border-border bg-surface-1 flex items-start gap-3 rounded-xl border p-5">
+            <Icon name="trending" class="text-profit mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p class="text-sm font-medium">On track to save $18,400 this year</p>
+              <p class="text-muted-foreground mt-1 text-xs leading-relaxed">
+                At your current pace, you'll beat last year by 22%.
+              </p>
+            </div>
+          </div>
+          <div class="border-border bg-surface-1 flex items-start gap-3 rounded-xl border p-5">
+            <Icon name="bell" class="text-loss mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p class="text-sm font-medium">Dining is 38% above your average</p>
+              <p class="text-muted-foreground mt-1 text-xs leading-relaxed">
+                $612 so far — mostly weekends. Set a cap?
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Reveal>
+  </div>
+</section>

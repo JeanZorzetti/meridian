@@ -1,0 +1,79 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/site/Nav.astro";
+import Pricing from "../components/site/Pricing.astro";
+import CTA from "../components/site/CTA.astro";
+import Footer from "../components/site/Footer.astro";
+
+const faqs = [
+  {
+    q: "Is my banking data safe?",
+    a: "Meridian connects with read-only access and encrypts everything with 256-bit AES at rest and TLS 1.3 in transit. We're SOC 2 Type II certified and never store your bank password.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. Cancel in one click and we'll prorate the rest of your billing period. Your data stays exportable until you delete it.",
+  },
+  {
+    q: "Which institutions are supported?",
+    a: "Over 12,000 banks, brokerages, and exchanges across North America and Europe, added continuously. If yours is missing, we'll prioritize it.",
+  },
+  {
+    q: "Do you sell my data?",
+    a: "Never. Meridian makes money from subscriptions, not from your transactions. Your financial data is never sold, shared, or used for advertising.",
+  },
+  {
+    q: "What happens when the free plan isn't enough?",
+    a: "Free covers three accounts forever. When your money gets more interesting, upgrade to Plus — no data migration, nothing to re-import.",
+  },
+];
+---
+
+<Layout
+  title="Meridian — Pricing"
+  description="Simple, honest pricing for Meridian. Start free forever, upgrade when your money gets interesting."
+>
+  <Nav />
+  <main>
+    <section class="wrap pt-32 pb-4 text-center md:pt-40">
+      <p class="eyebrow mb-4">Pricing</p>
+      <h1 class="mx-auto max-w-3xl text-4xl font-semibold tracking-[-0.035em] text-balance sm:text-5xl md:text-6xl">
+        One price. Every account. No asterisks.
+      </h1>
+      <p class="text-muted-foreground mx-auto mt-5 max-w-md text-base leading-relaxed sm:text-lg">
+        Start free forever. Upgrade when your money gets interesting. Cancel in
+        one click.
+      </p>
+    </section>
+
+    <Pricing withHeader={false} />
+
+    <section class="wrap pb-24 md:pb-32">
+      <div class="mx-auto max-w-2xl">
+        <h2 class="text-2xl font-semibold tracking-[-0.02em]">Questions</h2>
+        <div class="border-border mt-8 border-t">
+          {
+            faqs.map((f) => (
+              <details class="group border-border border-b">
+                <summary class="hover:text-foreground text-foreground flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-[15px] font-medium">
+                  {f.q}
+                  <span class="text-muted-foreground shrink-0 transition-transform duration-200 group-open:rotate-45">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                  </span>
+                </summary>
+                <p class="text-muted-foreground max-w-xl pb-5 text-sm leading-relaxed">
+                  {f.a}
+                </p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <CTA />
+  </main>
+  <Footer />
+</Layout>

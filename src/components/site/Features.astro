@@ -1,0 +1,159 @@
+---
+import Icon from "./Icon.astro";
+import Reveal from "./Reveal.astro";
+
+const accounts = [
+  { name: "Chase · Checking", value: "$8,240" },
+  { name: "Fidelity · Brokerage", value: "$71,900" },
+  { name: "Coinbase · Crypto", value: "$18,400" },
+];
+
+const allocation = [
+  { label: "Equities", pct: 62 },
+  { label: "Crypto", pct: 21 },
+  { label: "Cash", pct: 17 },
+];
+---
+
+<section id="features" class="wrap scroll-mt-24 py-24 md:py-32">
+  <div class="max-w-2xl">
+    <p class="eyebrow mb-4">The product</p>
+    <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
+      Everything your money needs.<br class="hidden sm:block" />
+      Nothing it doesn't.
+    </h2>
+    <p class="text-muted-foreground mt-5 text-base leading-relaxed sm:text-lg">
+      No dashboards to configure, no formulas to maintain. Meridian does the
+      reconciling so you do the deciding.
+    </p>
+  </div>
+
+  <div class="mt-14 grid grid-cols-1 gap-3 md:grid-cols-3">
+    <!-- A · wide -->
+    <Reveal class="md:col-span-2">
+      <article class="border-border bg-surface-1 hover:border-border/80 group h-full rounded-xl border p-7 transition-colors">
+        <Icon name="layers" class="text-profit h-5 w-5" />
+        <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
+          One number for everything you own
+        </h3>
+        <p class="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
+          Connect banks, brokerages, crypto, and real estate. Meridian
+          reconciles them into a single net worth that's current every time you
+          open it.
+        </p>
+
+        <div class="border-border mt-7 rounded-lg border">
+          {
+            accounts.map((a) => (
+              <div class="border-border flex items-center justify-between border-b px-4 py-3 last:border-b-0">
+                <span class="text-muted-foreground text-sm">{a.name}</span>
+                <span class="tnum text-sm">{a.value}</span>
+              </div>
+            ))
+          }
+          <div class="flex items-center justify-between bg-[#3ecf8e]/[0.06] px-4 py-3">
+            <span class="text-sm font-medium">Net worth</span>
+            <span class="tnum text-profit text-sm font-medium">$98,540</span>
+          </div>
+        </div>
+      </article>
+    </Reveal>
+
+    <!-- B -->
+    <Reveal delay={60}>
+      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
+        <Icon name="tag" class="text-profit h-5 w-5" />
+        <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
+          Automatic categorization
+        </h3>
+        <p class="text-muted-foreground mt-2 text-sm leading-relaxed">
+          Every transaction is sorted the moment it lands. Correct one and
+          Meridian remembers — permanently.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-2">
+          {
+            ["Groceries", "Rent", "Dining", "Transfers", "Subscriptions"].map(
+              (t) => (
+                <span class="border-border text-muted-foreground rounded border px-2.5 py-1 font-mono text-[11px]">
+                  {t}
+                </span>
+              ),
+            )
+          }
+        </div>
+      </article>
+    </Reveal>
+
+    <!-- C -->
+    <Reveal delay={60}>
+      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
+        <Icon name="pie" class="text-profit h-5 w-5" />
+        <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
+          Spending that explains itself
+        </h3>
+        <p class="text-muted-foreground mt-2 text-sm leading-relaxed">
+          See exactly where each month goes — by category, merchant, and trend —
+          without building a single report.
+        </p>
+        <div class="mt-6 space-y-2.5">
+          {
+            [
+              { l: "Housing", w: 78 },
+              { l: "Food", w: 46 },
+              { l: "Transport", w: 28 },
+            ].map((r) => (
+              <div class="flex items-center gap-3">
+                <span class="text-muted-foreground w-16 text-xs">{r.l}</span>
+                <span class="bg-surface-3 h-1.5 flex-1 overflow-hidden rounded-full">
+                  <span
+                    class="bg-profit/70 block h-full rounded-full"
+                    style={`width:${r.w}%`}
+                  />
+                </span>
+              </div>
+            ))
+          }
+        </div>
+      </article>
+    </Reveal>
+
+    <!-- D · wide -->
+    <Reveal delay={120} class="md:col-span-2">
+      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
+        <Icon name="trending" class="text-profit h-5 w-5" />
+        <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
+          Investments, in plain sight
+        </h3>
+        <p class="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
+          Allocation, cost basis, and performance across every account — the
+          full picture, no spreadsheet required.
+        </p>
+        <div class="mt-7 grid gap-6 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div class="space-y-3">
+            {
+              allocation.map((a) => (
+                <div class="flex items-center gap-3">
+                  <span class="text-muted-foreground w-20 text-xs">{a.label}</span>
+                  <span class="bg-surface-3 h-2 flex-1 overflow-hidden rounded-full">
+                    <span
+                      class="bg-profit block h-full rounded-full"
+                      style={`width:${a.pct}%;opacity:${0.4 + a.pct / 160}`}
+                    />
+                  </span>
+                  <span class="tnum text-muted-foreground w-9 text-right text-xs">
+                    {a.pct}%
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+          <div class="border-border rounded-lg border px-6 py-4 text-center">
+            <p class="eyebrow">Total return</p>
+            <p class="tnum text-profit mt-1 text-2xl font-semibold">+18.4%</p>
+            <p class="text-muted-foreground mt-1 text-xs">trailing 12 months</p>
+          </div>
+        </div>
+      </article>
+    </Reveal>
+  </div>
+</section>

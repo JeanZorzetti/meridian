@@ -1,0 +1,36 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Icon from "../components/site/Icon.astro";
+---
+
+<Layout title="Meridian — App" description="The Meridian app.">
+  <main class="flex min-h-screen items-center justify-center px-6">
+    <div class="w-full max-w-md text-center">
+      <a href="/" class="inline-flex items-center gap-2.5" aria-label="Meridian home">
+        <svg width="26" height="26" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <circle cx="11" cy="11" r="9.25" stroke="currentColor" stroke-width="1.5" class="text-foreground/70"></circle>
+          <path d="M2 11h18" stroke="#3ecf8e" stroke-width="1.5"></path>
+          <path d="M11 1.75v18.5" stroke="currentColor" stroke-width="1.5" class="text-foreground/25"></path>
+        </svg>
+        <span class="text-lg font-semibold tracking-[-0.02em]">Meridian</span>
+      </a>
+
+      <p class="eyebrow mt-10">The app</p>
+      <h1 class="mt-3 text-2xl font-semibold tracking-[-0.02em]">
+        Your dashboard is being built
+      </h1>
+      <p class="text-muted-foreground mt-3 text-sm leading-relaxed">
+        The functional Meridian app — accounts, live net worth, and forecasts —
+        ships in the next build. This is the marketing surface for now.
+      </p>
+
+      <a
+        href="/"
+        class="border-border hover:bg-accent mt-8 inline-flex h-10 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors"
+      >
+        <Icon name="arrow-right" class="h-4 w-4 rotate-180" />
+        Back to home
+      </a>
+    </div>
+  </main>
+</Layout>

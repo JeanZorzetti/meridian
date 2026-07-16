@@ -1,0 +1,55 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<section id="cta" class="wrap scroll-mt-24 py-24 md:py-32">
+  <div
+    class="glass relative isolate overflow-hidden rounded-2xl px-6 py-16 text-center md:px-16 md:py-24"
+  >
+    <div class="cta-glow pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
+
+    <p class="eyebrow mb-5">Your money, in focus</p>
+    <h2 class="mx-auto max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
+      Start seeing clearly.
+    </h2>
+    <p class="text-muted-foreground mx-auto mt-5 max-w-md leading-relaxed">
+      Connect your first account in under two minutes. Free forever, no card
+      required.
+    </p>
+
+    <form
+      class="mx-auto mt-9 flex max-w-md flex-col gap-2.5 sm:flex-row"
+      onsubmit="return false"
+    >
+      <label class="sr-only" for="cta-email">Email address</label>
+      <input
+        id="cta-email"
+        type="email"
+        required
+        placeholder="you@email.com"
+        class="border-border bg-background/60 placeholder:text-muted-foreground focus:border-profit/60 h-11 flex-1 rounded-md border px-4 text-sm outline-none transition-colors"
+      />
+      <button
+        type="submit"
+        class="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-11 items-center justify-center gap-2 rounded-md px-5 text-sm font-medium transition-colors"
+      >
+        Get started
+        <Icon name="arrow-right" class="h-4 w-4" />
+      </button>
+    </form>
+
+    <p class="text-muted-foreground mt-5 font-mono text-xs">
+      Join 12,400+ people who finally know their number.
+    </p>
+  </div>
+</section>
+
+<style>
+  .cta-glow {
+    background: radial-gradient(
+      520px 260px at 50% 0%,
+      rgba(62, 207, 142, 0.14),
+      transparent 70%
+    );
+  }
+</style>

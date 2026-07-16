@@ -1,0 +1,16 @@
+---
+// Progressive-enhancement reveal wrapper. Renders a plain element that the
+// global IntersectionObserver animates in. Visible by default without JS.
+interface Props {
+  delay?: number; // ms
+  class?: string;
+}
+const { delay, class: cls } = Astro.props;
+---
+
+<div
+  class:list={["reveal", cls]}
+  style={delay ? `transition-delay:${delay}ms` : undefined}
+>
+  <slot />
+</div>

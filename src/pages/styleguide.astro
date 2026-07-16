@@ -1,0 +1,147 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/site/Nav.astro";
+import Footer from "../components/site/Footer.astro";
+import NetWorthChart from "../components/react/NetWorthChart.tsx";
+import StyleguidePrimitives from "../components/react/StyleguidePrimitives.tsx";
+
+const colors = [
+  { name: "background", hex: "#08080A", note: "Canvas — near-black" },
+  { name: "surface-1", hex: "#0E0E10", note: "Card / panel" },
+  { name: "surface-2", hex: "#131315", note: "Popover" },
+  { name: "surface-3", hex: "#1C1B1E", note: "Track / inset" },
+  { name: "foreground", hex: "#ECECEE", note: "Primary text" },
+  { name: "muted-fg", hex: "#8E8E96", note: "Secondary text" },
+  { name: "profit / mint", hex: "#3ECF8E", note: "Brand · positive · CTA" },
+  { name: "loss / rose", hex: "#F0616D", note: "Negative only" },
+];
+
+const type = [
+  { role: "Display", cls: "text-6xl font-semibold tracking-[-0.045em]", spec: "Geist · 72/-4.5% · 600", sample: "See every dollar." },
+  { role: "Headline", cls: "text-4xl font-semibold tracking-[-0.03em]", spec: "Geist · 36/-3% · 600", sample: "Own every decision." },
+  { role: "Title", cls: "text-xl font-medium tracking-[-0.02em]", spec: "Geist · 20/-2% · 500", sample: "One number for everything." },
+  { role: "Body", cls: "text-base text-muted-foreground leading-relaxed", spec: "Geist · 16/1.6 · 400", sample: "Meridian reconciles every account into a single, current net worth." },
+  { role: "Data", cls: "tnum text-2xl", spec: "Geist Mono · tabular", sample: "$128,540.00" },
+  { role: "Eyebrow", cls: "eyebrow", spec: "Geist Mono · 11 · 0.14em · caps", sample: "Personal finance" },
+];
+
+const radii = [
+  { name: "sm", px: "~4px", cls: "rounded-sm" },
+  { name: "md", px: "~5px", cls: "rounded-md" },
+  { name: "lg", px: "6px", cls: "rounded-lg" },
+  { name: "xl", px: "~8px", cls: "rounded-xl" },
+];
+---
+
+<Layout title="Meridian — Design System" description="The Dark Swiss design system behind Meridian.">
+  <Nav />
+  <main class="wrap pt-32 pb-24 md:pt-40">
+    <header class="border-border max-w-2xl border-b pb-12">
+      <p class="eyebrow mb-4">Design system</p>
+      <h1 class="text-4xl font-semibold tracking-[-0.035em] sm:text-5xl">Dark Swiss</h1>
+      <p class="text-muted-foreground mt-4 leading-relaxed">
+        The single source of truth behind Meridian — near-black canvas, hairline
+        structure, one mint accent reserved for status. Tokens live in <span
+          class="font-mono text-xs">global.css</span
+        >; every surface derives from them.
+      </p>
+    </header>
+
+    <!-- Color -->
+    <section class="border-border border-b py-14">
+      <h2 class="text-lg font-medium tracking-[-0.01em]">Color</h2>
+      <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {
+          colors.map((c) => (
+            <div class="border-border overflow-hidden rounded-lg border">
+              <div class="h-20 w-full" style={`background:${c.hex}`} />
+              <div class="border-border border-t px-3 py-3">
+                <p class="font-mono text-xs">{c.name}</p>
+                <p class="text-muted-foreground mt-1 font-mono text-[11px]">{c.hex}</p>
+                <p class="text-muted-foreground mt-1 text-[11px]">{c.note}</p>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- Typography -->
+    <section class="border-border border-b py-14">
+      <h2 class="text-lg font-medium tracking-[-0.01em]">Typography</h2>
+      <div class="mt-6 space-y-8">
+        {
+          type.map((t) => (
+            <div class="grid gap-2 md:grid-cols-[160px_1fr] md:items-baseline md:gap-8">
+              <div>
+                <p class="font-mono text-xs">{t.role}</p>
+                <p class="text-muted-foreground mt-1 font-mono text-[11px]">{t.spec}</p>
+              </div>
+              <p class={t.cls} set:html={t.sample} />
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- Primitives (shadcn, themed) -->
+    <section class="border-border border-b py-14">
+      <h2 class="text-lg font-medium tracking-[-0.01em]">Primitives</h2>
+      <p class="text-muted-foreground mt-2 text-sm">
+        shadcn/ui on Radix, retinted to Dark Swiss. Accessible by default.
+      </p>
+      <div class="mt-4">
+        <StyleguidePrimitives client:visible />
+      </div>
+    </section>
+
+    <!-- Signature -->
+    <section class="border-border border-b py-14">
+      <h2 class="text-lg font-medium tracking-[-0.01em]">Signature — net-worth curve</h2>
+      <p class="text-muted-foreground mt-2 max-w-xl text-sm">
+        Anime.js draws the line on load; the area fades in behind it. Reduced
+        motion renders it fully drawn. One bespoke motion, spent where it counts.
+      </p>
+      <div class="border-border bg-surface-1 mt-6 h-56 rounded-xl border p-6">
+        <NetWorthChart client:visible />
+      </div>
+    </section>
+
+    <!-- Geometry + motion -->
+    <section class="grid gap-12 py-14 md:grid-cols-2">
+      <div>
+        <h2 class="text-lg font-medium tracking-[-0.01em]">Radius</h2>
+        <div class="mt-6 flex flex-wrap gap-4">
+          {
+            radii.map((r) => (
+              <div class="text-center">
+                <div class:list={["border-border bg-surface-2 h-16 w-16 border", r.cls]} />
+                <p class="mt-2 font-mono text-[11px]">{r.name}</p>
+                <p class="text-muted-foreground font-mono text-[11px]">{r.px}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+      <div>
+        <h2 class="text-lg font-medium tracking-[-0.01em]">Motion</h2>
+        <div class="mt-6 space-y-3 text-sm">
+          <p class="text-muted-foreground">
+            One easing — <span class="text-foreground font-mono text-xs">cubic-bezier(0.22, 1, 0.36, 1)</span>.
+            Short, precise, never bouncy.
+          </p>
+          <p class="text-muted-foreground">
+            Reveals rise 18px over 600ms. Reduced motion disables all of it.
+          </p>
+        </div>
+        <div class="mt-6">
+          <h2 class="text-lg font-medium tracking-[-0.01em]">Glass</h2>
+          <div class="glass mt-4 rounded-xl p-6">
+            <p class="text-sm">.glass — 3% white, 16px blur, hairline border.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

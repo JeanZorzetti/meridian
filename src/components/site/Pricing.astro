@@ -1,0 +1,122 @@
+---
+import Icon from "./Icon.astro";
+
+interface Props {
+  withHeader?: boolean;
+}
+const { withHeader = true } = Astro.props;
+
+const tiers = [
+  {
+    name: "Free",
+    price: "$0",
+    cadence: "forever",
+    tagline: "Get the full picture.",
+    cta: "Start free",
+    featured: false,
+    features: [
+      "Up to 3 connected accounts",
+      "Net worth & spending",
+      "12 months of history",
+      "Weekly email summary",
+    ],
+  },
+  {
+    name: "Plus",
+    price: "$8",
+    cadence: "/ month",
+    tagline: "Stay ahead of it.",
+    cta: "Start 14-day trial",
+    featured: true,
+    features: [
+      "Unlimited accounts",
+      "Investment & crypto tracking",
+      "Forecasts & runway",
+      "Smart alerts",
+      "Unlimited history",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "$16",
+    cadence: "/ month",
+    tagline: "For serious portfolios.",
+    cta: "Start 14-day trial",
+    featured: false,
+    features: [
+      "Everything in Plus",
+      "Tax-lot & cost-basis tracking",
+      "Multi-currency",
+      "CSV & API export",
+      "Priority support",
+    ],
+  },
+];
+---
+
+<section id="pricing" class="wrap scroll-mt-24 py-24 md:py-32">
+  {
+    withHeader && (
+      <div class="mx-auto max-w-2xl text-center">
+        <p class="eyebrow mb-4">Pricing</p>
+        <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
+          One price. Every account. No asterisks.
+        </h2>
+        <p class="text-muted-foreground mt-5 text-base leading-relaxed sm:text-lg">
+          Start free forever. Upgrade when your money gets interesting.
+        </p>
+      </div>
+    )
+  }
+
+  <div class="mt-14 grid gap-3 md:grid-cols-3">
+    {
+      tiers.map((t) => (
+        <div
+          class:list={[
+            "relative flex h-full flex-col rounded-xl border p-7",
+            t.featured
+              ? "border-profit/40 bg-surface-1"
+              : "border-border bg-surface-1",
+          ]}
+          style={t.featured ? "box-shadow: 0 0 0 1px rgba(62,207,142,0.12), 0 40px 90px -60px rgba(62,207,142,0.35)" : ""}
+        >
+          {t.featured && (
+            <span class="bg-profit text-primary-foreground absolute -top-2.5 right-6 rounded px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide">
+              MOST POPULAR
+            </span>
+          )}
+          <p class="text-sm font-medium">{t.name}</p>
+          <p class="text-muted-foreground mt-1 text-sm">{t.tagline}</p>
+          <div class="mt-5 flex items-baseline gap-1.5">
+            <span class="tnum text-4xl font-semibold tracking-[-0.02em]">
+              {t.price}
+            </span>
+            <span class="text-muted-foreground text-sm">{t.cadence}</span>
+          </div>
+
+          <a
+            href="/admin"
+            class:list={[
+              "mt-6 inline-flex h-10 items-center justify-center rounded-md text-sm font-medium transition-colors",
+              t.featured
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "border-border hover:bg-accent border",
+            ]}
+          >
+            {t.cta}
+          </a>
+
+          <ul class="border-border mt-7 space-y-3 border-t pt-7">
+            {t.features.map((f) => (
+              <li class="flex items-start gap-2.5 text-sm">
+                <Icon name="check" class="text-profit mt-0.5 h-4 w-4 shrink-0" />
+                <span class="text-muted-foreground">{f}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+</section>

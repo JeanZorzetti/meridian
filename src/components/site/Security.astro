@@ -1,0 +1,68 @@
+---
+import Icon from "./Icon.astro";
+import Reveal from "./Reveal.astro";
+
+const points = [
+  {
+    icon: "eye" as const,
+    title: "Read-only by default",
+    body: "Meridian can see balances and transactions. It can never move, spend, or withdraw a cent.",
+  },
+  {
+    icon: "lock" as const,
+    title: "Encrypted end to end",
+    body: "AES-256 at rest, TLS 1.3 in transit. Credentials are tokenized — we never store your bank password.",
+  },
+  {
+    icon: "shield" as const,
+    title: "Independently audited",
+    body: "SOC 2 Type II certified, with third-party penetration tests every quarter.",
+  },
+  {
+    icon: "check" as const,
+    title: "Delete anytime",
+    body: "Disconnect an account or erase everything in one click. Your data leaves when you do.",
+  },
+];
+---
+
+<section id="security" class="border-border scroll-mt-24 border-t">
+  <div class="wrap grid gap-12 py-24 md:grid-cols-[0.9fr_1.1fr] md:py-32">
+    <div>
+      <p class="eyebrow mb-4">Security</p>
+      <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">
+        Built to be trusted with the whole number.
+      </h2>
+      <p class="text-muted-foreground mt-5 max-w-md leading-relaxed">
+        A finance tool is only as good as the confidence you have handing it
+        everything. Meridian earns that the boring way — with architecture, not
+        adjectives.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-2">
+        {
+          ["SOC 2 Type II", "256-bit AES", "TLS 1.3", "GDPR"].map((b) => (
+            <span class="border-border text-muted-foreground rounded border px-2.5 py-1 font-mono text-[11px]">
+              {b}
+            </span>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="grid gap-3 sm:grid-cols-2">
+      {
+        points.map((p, i) => (
+          <Reveal delay={i * 50}>
+            <div class="border-border bg-surface-1 h-full rounded-xl border p-6">
+              <Icon name={p.icon} class="text-profit h-5 w-5" />
+              <h3 class="mt-4 font-medium tracking-[-0.01em]">{p.title}</h3>
+              <p class="text-muted-foreground mt-2 text-sm leading-relaxed">
+                {p.body}
+              </p>
+            </div>
+          </Reveal>
+        ))
+      }
+    </div>
+  </div>
+</section>

@@ -1,0 +1,51 @@
+---
+// Minimal inline icon set (stroke-based, currentColor). Keeps the marketing
+// surface zero-JS — lucide-react is reserved for the React /admin app.
+interface Props {
+  name:
+    | "layers"
+    | "tag"
+    | "pie"
+    | "trending"
+    | "compass"
+    | "shield"
+    | "lock"
+    | "eye"
+    | "bell"
+    | "check"
+    | "arrow-right"
+    | "plug";
+  class?: string;
+}
+const { name, class: cls = "h-5 w-5" } = Astro.props;
+
+const paths: Record<Props["name"], string> = {
+  layers:
+    "M12 2 2 7l10 5 10-5-10-5Z M2 12l10 5 10-5 M2 17l10 5 10-5",
+  tag: "M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0l-7.6-7.6A2 2 0 0 1 2.4 11.6V4a2 2 0 0 1 2-2h7.59a2 2 0 0 1 1.41.59l7.18 7.17a2 2 0 0 1 0 2.83Z M7.5 7.5h.01",
+  pie: "M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10Z",
+  trending: "m22 7-8.5 8.5-5-5L2 17 M16 7h6v6",
+  compass:
+    "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76Z",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+  lock: "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z M8 11V7a4 4 0 0 1 8 0v4",
+  eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0",
+  check: "m20 6-11 11-5-5",
+  "arrow-right": "M5 12h14 M12 5l7 7-7 7",
+  plug: "M12 22v-5 M9 8V2 M15 8V2 M6 8h12v4a6 6 0 0 1-12 0V8Z",
+};
+---
+
+<svg
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  class={cls}
+  aria-hidden="true"
+>
+  {paths[name].split(" M").map((seg, i) => <path d={(i === 0 ? seg : "M" + seg)} />)}
+</svg>
