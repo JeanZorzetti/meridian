@@ -50,6 +50,12 @@ function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// Parse a parcela count: blank or garbage → null (NaN would serialize to null
+// anyway, but an explicit null keeps the intent — "not an installment" — clear).
+function posInt(s: string): number | null {
+  const n = Math.trunc(Number(s));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 async function api(url: string, method = "GET", body?: unknown) {
   const res = await fetch(url, {
     method,
@@ -553,6 +559,17 @@ function BillEditor({ bill: b, act }: {
   bill: ApiBill; act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const patch = (body: Record<string, unknown>) => act(() => api(`/api/bills/${b.id}`, "PATCH", body));
+  // Local state for the two installment inputs: they commit together (a current
+  // without a total means nothing, and the badge only shows when both are set).
+  const [cur, setCur] = useState(b.installment_current?.toString() ?? "");
+  const [tot, setTot] = useState(b.installment_total?.toString() ?? "");
+  const commitInstallment = () => {
+    const total = posInt(tot);
+    const current = total ? Math.min(total, posInt(cur) ?? 1) : null;
+    if (current !== b.installment_current || total !== b.installment_total) {
+      patch({ installment_current: current, installment_total: total });
+    }
+  };
   return (
     <div className="bg-surface-1/40 border-border grid gap-3 border-t px-4 py-3 sm:grid-cols-2">
       <Field label="nome">
@@ -591,6 +608,19 @@ function BillEditor({ bill: b, act }: {
         <MoneyInput cents={b.actual_cents} placeholder="não conciliado" className="w-full"
           onCommit={(c) => patch({ actual_cents: c })} />
       </Field>
+      <Field label="parcela (atual / total)">
+        <span className="flex items-center gap-1.5">
+          <input value={cur} inputMode="numeric" placeholder="—" aria-label="parcela atual"
+            onChange={(e) => setCur(e.target.value)} onBlur={commitInstallment}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            className={`${INPUT} tnum w-16 text-center`} />
+          <span className="text-muted-foreground">/</span>
+          <input value={tot} inputMode="numeric" placeholder="—" aria-label="total de parcelas"
+            onChange={(e) => setTot(e.target.value)} onBlur={commitInstallment}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            className={`${INPUT} tnum w-16 text-center`} />
+        </span>
+      </Field>
       <label className="text-muted-foreground flex items-center gap-2 text-xs sm:col-span-2">
         <input type="checkbox" checked={b.recurring} className="accent-primary h-4 w-4"
           onChange={(e) => patch({ recurring: e.target.checked })} />
@@ -607,12 +637,21 @@ function AddBill({ month, onDone, act }: {
   const [value, setValue] = useState("");
   const [cat, setCat] = useState("");
   const [day, setDay] = useState("");
+  // Installment: `tot` is the number of parcelas; `cur` which one this month is
+  // (defaults to 1 — a purchase you're registering fresh starts at 1/N; set it
+  // higher when migrating one already mid-way, like 2/4). recurring stays true
+  // (the server default) so rollover advances it 1/4 → 2/4 and drops it at N/N.
+  const [cur, setCur] = useState("");
+  const [tot, setTot] = useState("");
   const submit = () => {
     if (!name.trim()) return;
+    const total = posInt(tot);
+    const current = total ? Math.min(total, posInt(cur) ?? 1) : null;
     // No category sent -> the server infers it from the name (src/lib/categorize.ts).
     act(() => api("/api/bills", "POST", {
       month, name: name.trim(), category: cat.trim() || null, planned_cents: brlToCents(value),
       due_day: day.trim() ? Math.min(31, Math.max(1, Math.trunc(Number(day)))) : null,
+      installment_current: current, installment_total: total,
     })).then(onDone);
   };
   return (
@@ -623,6 +662,16 @@ function AddBill({ month, onDone, act }: {
         onChange={(e) => setCat(e.target.value)} className={`${INPUT} w-32`} />
       <input placeholder="dia" inputMode="numeric" value={day} onChange={(e) => setDay(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-16 text-center`} />
+      {/* parcela N/M — leave blank for a normal (non-installment) bill */}
+      <span className="flex items-center gap-1" title="Parcela: nº atual / total. Deixe vazio se não for parcelado.">
+        <input placeholder="—" inputMode="numeric" value={cur} onChange={(e) => setCur(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} aria-label="parcela atual"
+          className={`${INPUT} tnum w-12 text-center`} />
+        <span className="text-muted-foreground text-sm">/</span>
+        <input placeholder="parc." inputMode="numeric" value={tot} onChange={(e) => setTot(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} aria-label="total de parcelas"
+          className={`${INPUT} tnum w-14 text-center`} />
+      </span>
       <input placeholder="R$ 0,00" value={value} inputMode="decimal" onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-28 text-right`} />
       <button onClick={submit}
