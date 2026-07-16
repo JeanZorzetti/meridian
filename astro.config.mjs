@@ -12,6 +12,17 @@ export default defineConfig({
   integrations: [react()],
   adapter: node({ mode: 'standalone' }),
 
+  security: {
+    // The proxy terminates TLS and forwards plain HTTP, so the request reaches
+    // Node as http:// while the browser sends Origin: https://. Astro only
+    // trusts x-forwarded-proto/host when this list is non-empty, and otherwise
+    // falls back to localhost — which makes the CSRF check reject every POST.
+    // Baked in at build time: adding a domain needs a rebuild, not just an env var.
+    allowedDomains: [
+      { protocol: 'https', hostname: 'sirius-crm-meridian.7c17iw.easypanel.host' },
+    ],
+  },
+
   vite: {
     plugins: [tailwindcss()]
   }
