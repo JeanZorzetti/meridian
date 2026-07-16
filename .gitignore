@@ -17,8 +17,13 @@ pnpm-debug.log*
 .env
 .env.production
 
+# personal spreadsheets — seed input for `npm run db:init`, never published
+docs/CONTAS.xlsx
+docs/Julho/
+
 # macOS-specific files
 .DS_Store
 
 # jetbrains setting folder
 .idea/
+.playwright-mcp/

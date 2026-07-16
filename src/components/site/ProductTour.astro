@@ -3,15 +3,21 @@ import Reveal from "./Reveal.astro";
 import Icon from "./Icon.astro";
 ---
 
-<section id="tour" class="wrap scroll-mt-24 py-24 md:py-32">
-  <div class="max-w-2xl">
-    <p class="eyebrow mb-4">How it works</p>
-    <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
-      From scattered to clear, in three steps.
-    </h2>
+<section id="tour" class="pin-section scroll-mt-24">
+  <div class="pin-bg" aria-hidden="true">
+    <span class="pin-grid"></span>
+    <span class="pin-glow"></span>
   </div>
 
-  <div class="mt-16 space-y-16 md:space-y-24">
+  <div class="wrap pin-content py-24 md:py-32">
+    <div class="max-w-2xl">
+      <p class="eyebrow mb-4">How it works</p>
+      <h2 class="text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
+        From scattered to clear, in three steps.
+      </h2>
+    </div>
+
+    <div class="mt-16 space-y-16 md:space-y-24">
     <!-- 01 Connect -->
     <Reveal>
       <div class="grid items-center gap-8 md:grid-cols-2 md:gap-16">
@@ -153,5 +159,6 @@ import Icon from "./Icon.astro";
         </div>
       </div>
     </Reveal>
+    </div>
   </div>
 </section>

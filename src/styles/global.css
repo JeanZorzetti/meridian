@@ -176,6 +176,32 @@
       scroll-behavior: auto !important;
     }
   }
+
+  /* Scrollbar — thin, hairline thumb, mint on hover (Dark Swiss).
+     Firefox uses the two standard props; WebKit/Blink the pseudo-elements. */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-3) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--background);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-3);
+    /* border of track color fakes padding → a slim floating thumb */
+    border: 3px solid var(--background);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+  }
+  ::-webkit-scrollbar-corner {
+    background: var(--background);
+  }
 }
 
 @layer components {
@@ -305,5 +331,95 @@
       width: var(--w);
       transition: none;
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Pinned-background section — the backdrop stays fixed (position:
+   * sticky, native) while content scrolls over it, so the section's
+   * layers surface one after another. Background layers themselves
+   * fade/rise in on scroll where scroll-timelines are supported;
+   * elsewhere they hold a calm static state.
+   * ------------------------------------------------------------------ */
+  .pin-section {
+    position: relative;
+    /* no overflow here — it would clip the sticky child */
+  }
+  .pin-bg {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    margin-bottom: -100vh; /* reclaim flow height so content overlaps */
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .pin-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Layer 1 — grid, the structural floor. Visible enough that, as the
+     content scrolls over it, the static lines read the pin unmistakably. */
+  .pin-grid {
+    position: absolute;
+    inset: -1px;
+    opacity: 0.9;
+    background-image:
+      linear-gradient(hsl(0 0% 100% / 0.11) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(0 0% 100% / 0.11) 1px, transparent 1px);
+    background-size: 60px 60px;
+    /* fade toward the edges so it reads as depth, not wallpaper */
+    -webkit-mask-image: radial-gradient(135% 100% at 50% 32%, #000 42%, transparent 88%);
+    mask-image: radial-gradient(135% 100% at 50% 32%, #000 42%, transparent 88%);
+  }
+  /* Layer 2 — mint aurora anchored bottom-centre; the held light source
+     that makes the pin obvious as cards drift past it. */
+  .pin-glow {
+    position: absolute;
+    left: 50%;
+    bottom: -30%;
+    width: min(1300px, 150%);
+    aspect-ratio: 1.35;
+    translate: -50% 0;
+    opacity: 1;
+    background: radial-gradient(
+      circle at 50% 50%,
+      rgba(62, 207, 142, 0.22),
+      rgba(62, 207, 142, 0.06) 40%,
+      transparent 66%
+    );
+  }
+
+  @supports (animation-timeline: view()) {
+    .pin-section {
+      view-timeline-name: --pin;
+      view-timeline-axis: block;
+    }
+    .pin-grid {
+      opacity: 0;
+      animation: pin-grid-in linear both;
+      animation-timeline: --pin;
+      animation-range: entry 0% cover 42%;
+    }
+    .pin-glow {
+      opacity: 0;
+      animation: pin-glow-in linear both;
+      animation-timeline: --pin;
+      animation-range: entry 12% cover 58%;
+    }
+    @keyframes pin-grid-in {
+      from { opacity: 0; transform: translateY(22px) scale(1.03); }
+      to   { opacity: 0.9; transform: none; }
+    }
+    @keyframes pin-glow-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* hold the revealed state; no scroll-linked motion */
+    .pin-grid { opacity: 0.9; animation: none; transform: none; }
+    .pin-glow { opacity: 1; animation: none; }
   }
 }

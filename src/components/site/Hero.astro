@@ -13,6 +13,7 @@ import CountUp from "../react/CountUp.tsx";
   >
   </div>
   <div class="hero-aurora pointer-events-none absolute inset-0" aria-hidden="true"></div>
+  <div class="hero-diag pointer-events-none absolute inset-0" aria-hidden="true"></div>
   <div class="hero-spot pointer-events-none absolute inset-0" aria-hidden="true"></div>
 
   <div class="wrap relative">
@@ -162,6 +163,15 @@ import CountUp from "../react/CountUp.tsx";
     to {
       transform: translate3d(3%, 2%, 0) scale(1.09);
     }
+  }
+
+  /* diagonal wash + glow along the chart's rising axis (↘ black → ↗ mint) */
+  .hero-diag {
+    background:
+      /* 1 — black → mint gradient toward the top-right */
+      linear-gradient(to top right, transparent 42%, rgba(62, 207, 142, 0.08) 100%),
+      /* 2 — soft glow riding the diagonal */
+      radial-gradient(760px 300px at 80% 20%, rgba(62, 207, 142, 0.1), transparent 70%);
   }
 
   /* top layer: mint spotlight tracking the cursor (--mx/--my from data-spotlight) */
