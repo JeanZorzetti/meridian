@@ -6,10 +6,28 @@ import { anomalies, forecast, insights, project } from "./insights.ts";
 // Server-only. `import.meta.env` is populated from .env in dev/build and is
 // undefined when this module is imported from a plain node script; `process.env`
 // covers both that and the standalone Node runtime in production.
-const url = import.meta.env?.DATABASE_URL ?? process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL não definido (.env)");
+//
+// The client is built on first query, never on import: middleware.ts imports
+// this module, and astro build loads middleware while prerendering the
+// marketing pages — where there is no DATABASE_URL and no query to run.
+// Constructing at import time made `astro build` need a live DB credential.
+let client: postgres.Sql | undefined;
+function db(): postgres.Sql {
+  if (!client) {
+    const url = import.meta.env?.DATABASE_URL ?? process.env.DATABASE_URL;
+    if (!url) throw new Error("DATABASE_URL não definido (.env)");
+    client = postgres(url, { ssl: false, onnotice: () => {} });
+  }
+  return client;
+}
 
-export const sql = postgres(url, { ssl: false, onnotice: () => {} });
+// `sql` is used as a tagged template (sql`select 1`), as a function (sql({...})),
+// and for its methods (sql.begin, sql.unsafe, sql.end) — the proxy forwards all
+// three to the lazily-built client.
+export const sql = new Proxy((() => {}) as unknown as postgres.Sql, {
+  apply: (_t, _self, args: unknown[]) => (db() as unknown as CallableFunction)(...args),
+  get: (_t, prop) => Reflect.get(db(), prop),
+}) as postgres.Sql;
 
 export interface DbBill {
   id: number;
