@@ -27,7 +27,11 @@ import Icon from "./Icon.astro";
             the balance.
           </p>
         </div>
-        <div class="border-border bg-surface-1 rounded-xl border p-5">
+        <div
+          class="tilt group border-border bg-surface-1 relative overflow-hidden rounded-xl border p-5 transition-colors hover:border-white/[0.16]"
+          data-tilt="4"
+        >
+          <span class="glare" aria-hidden="true" />
           <p class="eyebrow mb-4">Add accounts</p>
           <div class="space-y-2.5">
             {
@@ -36,7 +40,7 @@ import Icon from "./Icon.astro";
                 { n: "Fidelity", s: "Connected" },
                 { n: "Coinbase", s: "Syncing…" },
               ].map((a) => (
-                <div class="border-border flex items-center justify-between rounded-lg border px-4 py-3">
+                <div class="border-border flex items-center justify-between rounded-lg border px-4 py-3 transition-colors group-hover:border-white/[0.12]">
                   <span class="text-sm">{a.n}</span>
                   <span
                     class:list={[
@@ -46,7 +50,11 @@ import Icon from "./Icon.astro";
                         : "text-muted-foreground",
                     ]}
                   >
-                    {a.s === "Connected" && <Icon name="check" class="h-3 w-3" />}
+                    {a.s === "Connected" ? (
+                      <Icon name="check" class="h-3 w-3" />
+                    ) : (
+                      <span class="bg-muted-foreground/70 inline-block h-1.5 w-1.5 animate-pulse rounded-full" />
+                    )}
                     {a.s}
                   </span>
                 </div>
@@ -71,7 +79,11 @@ import Icon from "./Icon.astro";
             Every figure is tabular, timestamped, and yours to drill into.
           </p>
         </div>
-        <div class="border-border bg-surface-1 rounded-xl border p-6 md:order-1">
+        <div
+          class="tilt group border-border bg-surface-1 relative overflow-hidden rounded-xl border p-6 transition-colors hover:border-white/[0.16] md:order-1"
+          data-tilt="4"
+        >
+          <span class="glare" aria-hidden="true" />
           <div class="flex items-baseline justify-between">
             <p class="eyebrow">This month</p>
             <span class="text-profit font-mono text-xs">+$3,410</span>
@@ -112,7 +124,11 @@ import Icon from "./Icon.astro";
           </p>
         </div>
         <div class="space-y-3">
-          <div class="border-border bg-surface-1 flex items-start gap-3 rounded-xl border p-5">
+          <div
+            class="tilt border-border bg-surface-1 relative flex items-start gap-3 overflow-hidden rounded-xl border p-5 transition-colors hover:border-white/[0.16]"
+            data-tilt="3"
+          >
+            <span class="glare" aria-hidden="true" />
             <Icon name="trending" class="text-profit mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <p class="text-sm font-medium">On track to save $18,400 this year</p>
@@ -121,7 +137,11 @@ import Icon from "./Icon.astro";
               </p>
             </div>
           </div>
-          <div class="border-border bg-surface-1 flex items-start gap-3 rounded-xl border p-5">
+          <div
+            class="tilt border-border bg-surface-1 relative flex items-start gap-3 overflow-hidden rounded-xl border p-5 transition-colors hover:border-white/[0.16]"
+            data-tilt="3"
+          >
+            <span class="glare" aria-hidden="true" />
             <Icon name="bell" class="text-loss mt-0.5 h-5 w-5 shrink-0" />
             <div>
               <p class="text-sm font-medium">Dining is 38% above your average</p>

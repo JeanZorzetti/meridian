@@ -31,8 +31,16 @@ const allocation = [
   <div class="mt-14 grid grid-cols-1 gap-3 md:grid-cols-3">
     <!-- A · wide -->
     <Reveal class="md:col-span-2">
-      <article class="border-border bg-surface-1 hover:border-border/80 group h-full rounded-xl border p-7 transition-colors">
-        <Icon name="layers" class="text-profit h-5 w-5" />
+      <article
+        class="tilt group border-border bg-surface-1 relative h-full overflow-hidden rounded-xl border p-7 transition-colors hover:border-white/[0.16]"
+        data-tilt="3"
+      >
+        <span class="glare" aria-hidden="true"></span>
+        <span
+          class="border-border bg-surface-2 group-hover:border-profit/30 group-hover:bg-profit/10 inline-flex rounded-md border p-2 transition-colors"
+        >
+          <Icon name="layers" class="text-profit h-5 w-5" />
+        </span>
         <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
           One number for everything you own
         </h3>
@@ -61,8 +69,16 @@ const allocation = [
 
     <!-- B -->
     <Reveal delay={60}>
-      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
-        <Icon name="tag" class="text-profit h-5 w-5" />
+      <article
+        class="tilt group border-border bg-surface-1 relative h-full overflow-hidden rounded-xl border p-7 transition-colors hover:border-white/[0.16]"
+        data-tilt="3"
+      >
+        <span class="glare" aria-hidden="true"></span>
+        <span
+          class="border-border bg-surface-2 group-hover:border-profit/30 group-hover:bg-profit/10 inline-flex rounded-md border p-2 transition-colors"
+        >
+          <Icon name="tag" class="text-profit h-5 w-5" />
+        </span>
         <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
           Automatic categorization
         </h3>
@@ -86,8 +102,16 @@ const allocation = [
 
     <!-- C -->
     <Reveal delay={60}>
-      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
-        <Icon name="pie" class="text-profit h-5 w-5" />
+      <article
+        class="tilt group border-border bg-surface-1 relative h-full overflow-hidden rounded-xl border p-7 transition-colors hover:border-white/[0.16]"
+        data-tilt="3"
+      >
+        <span class="glare" aria-hidden="true"></span>
+        <span
+          class="border-border bg-surface-2 group-hover:border-profit/30 group-hover:bg-profit/10 inline-flex rounded-md border p-2 transition-colors"
+        >
+          <Icon name="pie" class="text-profit h-5 w-5" />
+        </span>
         <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
           Spending that explains itself
         </h3>
@@ -106,8 +130,8 @@ const allocation = [
                 <span class="text-muted-foreground w-16 text-xs">{r.l}</span>
                 <span class="bg-surface-3 h-1.5 flex-1 overflow-hidden rounded-full">
                   <span
-                    class="bg-profit/70 block h-full rounded-full"
-                    style={`width:${r.w}%`}
+                    class="bar bg-profit/70 block h-full rounded-full"
+                    style={`--w:${r.w}%`}
                   />
                 </span>
               </div>
@@ -119,8 +143,16 @@ const allocation = [
 
     <!-- D · wide -->
     <Reveal delay={120} class="md:col-span-2">
-      <article class="border-border bg-surface-1 h-full rounded-xl border p-7">
-        <Icon name="trending" class="text-profit h-5 w-5" />
+      <article
+        class="tilt group border-border bg-surface-1 relative h-full overflow-hidden rounded-xl border p-7 transition-colors hover:border-white/[0.16]"
+        data-tilt="3"
+      >
+        <span class="glare" aria-hidden="true"></span>
+        <span
+          class="border-border bg-surface-2 group-hover:border-profit/30 group-hover:bg-profit/10 inline-flex rounded-md border p-2 transition-colors"
+        >
+          <Icon name="trending" class="text-profit h-5 w-5" />
+        </span>
         <h3 class="mt-5 text-xl font-medium tracking-[-0.02em]">
           Investments, in plain sight
         </h3>
@@ -136,8 +168,8 @@ const allocation = [
                   <span class="text-muted-foreground w-20 text-xs">{a.label}</span>
                   <span class="bg-surface-3 h-2 flex-1 overflow-hidden rounded-full">
                     <span
-                      class="bg-profit block h-full rounded-full"
-                      style={`width:${a.pct}%;opacity:${0.4 + a.pct / 160}`}
+                      class="bar bg-profit block h-full rounded-full"
+                      style={`--w:${a.pct}%;opacity:${0.4 + a.pct / 160}`}
                     />
                   </span>
                   <span class="tnum text-muted-foreground w-9 text-right text-xs">

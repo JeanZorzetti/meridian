@@ -53,8 +53,14 @@ const points = [
       {
         points.map((p, i) => (
           <Reveal delay={i * 50}>
-            <div class="border-border bg-surface-1 h-full rounded-xl border p-6">
-              <Icon name={p.icon} class="text-profit h-5 w-5" />
+            <div
+              class="tilt group border-border bg-surface-1 relative h-full overflow-hidden rounded-xl border p-6 transition-colors hover:border-white/[0.16]"
+              data-tilt="3"
+            >
+              <span class="glare" aria-hidden="true" />
+              <span class="border-border bg-surface-2 group-hover:border-profit/30 group-hover:bg-profit/10 inline-flex rounded-md border p-2 transition-colors">
+                <Icon name={p.icon} class="text-profit h-5 w-5" />
+              </span>
               <h3 class="mt-4 font-medium tracking-[-0.01em]">{p.title}</h3>
               <p class="text-muted-foreground mt-2 text-sm leading-relaxed">
                 {p.body}

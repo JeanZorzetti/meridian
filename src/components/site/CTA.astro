@@ -5,8 +5,10 @@ import Icon from "./Icon.astro";
 <section id="cta" class="wrap scroll-mt-24 py-24 md:py-32">
   <div
     class="glass relative isolate overflow-hidden rounded-2xl px-6 py-16 text-center md:px-16 md:py-24"
+    data-spotlight
   >
     <div class="cta-glow pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
+    <div class="cta-spot pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
 
     <p class="eyebrow mb-5">Your money, in focus</p>
     <h2 class="mx-auto max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
@@ -51,5 +53,18 @@ import Icon from "./Icon.astro";
       rgba(62, 207, 142, 0.14),
       transparent 70%
     );
+  }
+  /* cursor-following mint bloom; --mx/--my come from data-spotlight */
+  .cta-spot {
+    background: radial-gradient(
+      340px circle at var(--mx, 50%) var(--my, 50%),
+      rgba(62, 207, 142, 0.1),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.5s var(--ease-swiss);
+  }
+  .glass:hover .cta-spot {
+    opacity: 1;
   }
 </style>

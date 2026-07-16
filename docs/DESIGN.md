@@ -49,9 +49,32 @@ monochrome. `primary-foreground` on mint buttons is `#06120C`.
 - Elevation: tonal layers + `.glass` (3% white, 16px blur, hairline). Shadows only for the highest elevation.
 - Motion: one easing `cubic-bezier(0.22, 1, 0.36, 1)`. Reveals rise 18px / 600ms. `prefers-reduced-motion` disables all.
 
+## Depth & interaction (cinematic layer)
+Swiss restraint on the *canvas*, cinematic depth on *contact*. The interaction
+layer is CSS-custom-property driven and wired by
+[`src/scripts/interactions.ts`](../src/scripts/interactions.ts); with no JS,
+a coarse pointer, or `prefers-reduced-motion` it all collapses to a calm static
+state. Opt in per element with data-attributes:
+
+| Attr / class | Effect | Where |
+|--------------|--------|-------|
+| `data-tilt="N"` + `.tilt` + `.glare` | Card rotates ≤N° toward the cursor, lifts 5px, catches a white sheen | Hero preview (6°), Features/Pricing (3–4°), ProductTour panels, Security cards (3°) |
+| `data-spotlight` | Element tracks pointer via `--mx/--my` | Hero grid, Metrics strip, CTA panel |
+| `data-parallax="s"` | Element drifts `−offset × s` on scroll via `--py` | Hero grid layer |
+| `.glow-mint` | Elevated shadow + a hint of mint bloom on hover | Hero preview card only |
+| `.bar` + inline `--w` | Bar grows from 0 → `--w` when its reveal enters view | Features spending/allocation bars |
+
+Icon chips light mint on `group-hover` (Features, Security); Metrics numbers lift;
+the "Syncing…" row pulses. Nav and the integrations marquee keep their existing motion.
+
+The hero background is a three-layer field: parallax Swiss grid → drifting mint
+aurora (`hero-drift`, 20s) → cursor spotlight. Mint still appears **only** on
+status; the sheens and lifts are neutral white. Boldness is spent on the hero
+card and the self-drawing net-worth curve.
+
 ## Components (best-of-each, one base)
 - **shadcn/ui** (Radix, Nova preset) — the single primitive base, retinted to Dark Swiss.
 - **Magic UI** — `Marquee` (integrations strip).
 - **Anime.js** — the signature net-worth curve (`NetWorthChart.tsx`, draws on load).
-- **CSS + IntersectionObserver** — scroll reveals (progressive enhancement; visible without JS).
-- HeroUI / Aceternity / framer-motion — evaluated, deliberately not used (restraint > spectacle for this brief).
+- **CSS + IntersectionObserver** — scroll reveals + the cinematic interaction layer (tilt, spotlight, parallax, grow-on-reveal). Progressive enhancement; visible and calm without JS.
+- HeroUI / Aceternity / framer-motion — evaluated, not needed: the depth is done in ~90 lines of CSS custom properties + one vanilla pointer handler, no runtime dependency.

@@ -3,9 +3,17 @@ import NetWorthChart, { MONTHS } from "../react/NetWorthChart.tsx";
 import CountUp from "../react/CountUp.tsx";
 ---
 
-<section class="relative overflow-hidden pt-32 pb-20 md:pt-40 md:pb-28">
-  <!-- ambient Swiss grid + restrained mint glow -->
-  <div class="hero-bg pointer-events-none absolute inset-0" aria-hidden="true"></div>
+<section class="hero relative overflow-hidden pt-32 pb-20 md:pt-40 md:pb-28" data-spotlight>
+  <!-- layered ambient field: Swiss grid (parallax) · drifting mint aurora ·
+       cursor spotlight. Stacked back-to-front, all decorative. -->
+  <div
+    class="hero-bg pointer-events-none absolute inset-x-0 top-[-10%] h-[120%]"
+    aria-hidden="true"
+    data-parallax="0.12"
+  >
+  </div>
+  <div class="hero-aurora pointer-events-none absolute inset-0" aria-hidden="true"></div>
+  <div class="hero-spot pointer-events-none absolute inset-0" aria-hidden="true"></div>
 
   <div class="wrap relative">
     <div class="grid items-center gap-14 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
@@ -50,9 +58,18 @@ import CountUp from "../react/CountUp.tsx";
         </p>
       </div>
 
-      <!-- right: product preview -->
-      <div class="glass relative rounded-xl p-5 sm:p-6" style="box-shadow: 0 30px 80px -40px rgba(0,0,0,0.9)">
-        <div class="flex items-start justify-between">
+      <!-- right: product preview — floats on a soft mint bloom, tilts to the
+           cursor, catches a sheen. The one card where boldness is spent. -->
+      <div class="relative [perspective:1400px]">
+        <div
+          class="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] opacity-70 blur-2xl"
+          style="background: radial-gradient(60% 60% at 50% 25%, rgba(62,207,142,0.12), transparent 70%)"
+          aria-hidden="true"
+        >
+        </div>
+        <div class="glass tilt glow-mint relative rounded-xl p-5 sm:p-6" data-tilt="6">
+          <span class="glare" aria-hidden="true"></span>
+          <div class="flex items-start justify-between">
           <div>
             <p class="eyebrow">Net worth</p>
             <p class="text-muted-foreground mt-1 text-xs">All accounts</p>
@@ -70,7 +87,7 @@ import CountUp from "../react/CountUp.tsx";
           </div>
         </div>
 
-        <div class="mt-4 flex items-end gap-3">
+        <div class="mt-4 flex items-end gap-3" style="transform: translateZ(45px)">
           <span class="tnum text-4xl font-semibold tracking-[-0.02em] sm:text-5xl">
             <CountUp to={128540} prefix="$" duration={1600} client:load />
           </span>
@@ -105,6 +122,7 @@ import CountUp from "../react/CountUp.tsx";
             <p class="tnum mt-1.5 text-sm">$12,400</p>
           </div>
         </div>
+        </div>
       </div>
     </div>
   </div>
@@ -122,5 +140,41 @@ import CountUp from "../react/CountUp.tsx";
       104px 104px;
     -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 82%);
     mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 82%);
+    /* --py written by the parallax handler; drifts the grid on scroll */
+    transform: translate3d(0, var(--py, 0), 0);
+    will-change: transform;
+  }
+
+  /* second depth layer: two mint blooms that slowly breathe across the top */
+  .hero-aurora {
+    background:
+      radial-gradient(520px 320px at 22% 26%, rgba(62, 207, 142, 0.07), transparent 70%),
+      radial-gradient(440px 280px at 78% 16%, rgba(62, 207, 142, 0.05), transparent 72%);
+    -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 28%, transparent 82%);
+    mask-image: radial-gradient(120% 90% at 50% 0%, #000 28%, transparent 82%);
+    animation: hero-drift 20s var(--ease-swiss) infinite alternate;
+    will-change: transform;
+  }
+  @keyframes hero-drift {
+    from {
+      transform: translate3d(-2%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(3%, 2%, 0) scale(1.09);
+    }
+  }
+
+  /* top layer: mint spotlight tracking the cursor (--mx/--my from data-spotlight) */
+  .hero-spot {
+    background: radial-gradient(
+      380px circle at var(--mx, 50%) var(--my, 30%),
+      rgba(62, 207, 142, 0.09),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.5s var(--ease-swiss);
+  }
+  .hero:hover .hero-spot {
+    opacity: 1;
   }
 </style>

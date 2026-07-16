@@ -230,4 +230,80 @@
       transition: none;
     }
   }
+
+  /* ------------------------------------------------------------------ *
+   * Cinematic interaction layer — pointer spotlight · 3D tilt · glare ·
+   * scroll parallax · grow-on-reveal. Opt in with data-attrs wired by
+   * scripts/interactions.ts. Pure CSS-var driven: with no JS or under
+   * prefers-reduced-motion it collapses to a calm static state.
+   * ------------------------------------------------------------------ */
+
+  /* Card that lifts and tilts toward the cursor. Pair with a .glare child.
+     --rx/--ry (rotation) and --lift are written by the pointer handler. */
+  .tilt {
+    transform:
+      perspective(1100px)
+      rotateX(var(--rx, 0deg))
+      rotateY(var(--ry, 0deg))
+      translate3d(0, var(--lift, 0px), 0);
+    transform-style: preserve-3d;
+    transition:
+      transform 0.2s var(--ease-swiss),
+      box-shadow 0.4s var(--ease-swiss),
+      border-color 0.4s var(--ease-swiss);
+    will-change: transform;
+  }
+  .tilt:hover {
+    --lift: -5px;
+  }
+
+  /* Cursor-following sheen. Sits above the card, never eats clicks.
+     --mx/--my (pointer %, from the same handler) place the highlight. */
+  .glare {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s var(--ease-swiss);
+    background: radial-gradient(
+      220px circle at var(--mx, 50%) var(--my, 50%),
+      hsl(0 0% 100% / 0.1),
+      transparent 60%
+    );
+  }
+  .tilt:hover .glare {
+    opacity: 1;
+  }
+
+  /* Elevated glow reserved for the signature hero card — the one place a
+     hint of mint bleeds past status, per the "spend boldness once" brief. */
+  .glow-mint {
+    box-shadow:
+      0 30px 80px -40px rgba(0, 0, 0, 0.9),
+      0 0 0 1px hsl(0 0% 100% / 0.05);
+  }
+  .glow-mint:hover {
+    box-shadow:
+      0 44px 90px -40px rgba(0, 0, 0, 0.95),
+      0 0 70px -22px rgba(62, 207, 142, 0.2),
+      0 0 0 1px hsl(0 0% 100% / 0.08);
+  }
+
+  /* Bars that grow from zero when their reveal scrolls into view.
+     Width target lives in the inline --w custom property. */
+  .js .bar {
+    width: 0;
+    transition: width 1s var(--ease-swiss);
+  }
+  .js .reveal.is-visible .bar {
+    width: var(--w);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .js .bar {
+      width: var(--w);
+      transition: none;
+    }
+  }
 }
