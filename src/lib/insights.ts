@@ -407,6 +407,14 @@ export function insights(
     lines.push(`Sua mesada caiu de ${centsToBRL(summary.per_day_start_cents)} para ${centsToBRL(summary.per_day_cents)}/dia.`);
   }
 
+  // Same translation pace() uses (delta ÷ baseline allowance): money into days,
+  // because days is this product's currency. Silent with no cards or no interest.
+  if (summary.interest_cents > 0 && summary.per_day_start_cents > 0) {
+    const days = Math.round((summary.interest_cents / summary.per_day_start_cents) * 10) / 10;
+    const daysTxt = days % 1 === 0 ? String(days) : days.toFixed(1).replace(".", ",");
+    lines.push(`Juros e tarifas do crédito somaram ${centsToBRL(summary.interest_cents)} neste mês — ${daysTxt} ${days === 1 ? "dia" : "dias"} da sua mesada.`);
+  }
+
   const top = summary.by_category[0];
   if (top && summary.spent_cents > 0) {
     const pct = Math.round((top.cents / summary.spent_cents) * 100);

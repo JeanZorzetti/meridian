@@ -24,6 +24,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ? await classifyWithLLM(note, await getCategoryModel(user.id))
       : { category: "Outros", source: "auto" as const };
 
+  let card_id: number | null = null;
+  if (b.card_id != null) {
+    const [card] = await sql`select id from cards where id = ${b.card_id} and user_id = ${user.id}`;
+    if (!card) return json({ error: "cartão não encontrado" }, 404);
+    card_id = card.id;
+  }
+
   const [row] = await sql`insert into daily_spends ${sql({
     user_id: user.id,
     month: b.spent_on.slice(0, 7),
@@ -32,6 +39,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     category,
     category_source: source,
     note,
+    card_id,
   })} returning id`;
   return json({ id: row.id }, 201);
 };

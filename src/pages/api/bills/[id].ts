@@ -7,6 +7,7 @@ export const prerender = false;
 const FIELDS = [
   "name", "category", "planned_cents", "actual_cents", "paid", "pay_method",
   "installment_current", "installment_total", "due_day", "recurring", "sort_order",
+  "card_id", "principal_cents",
 ];
 
 export const PATCH: APIRoute = async ({ params, request, locals }) => {
@@ -27,6 +28,11 @@ export const PATCH: APIRoute = async ({ params, request, locals }) => {
     if (!category) return json({ error: "category vazia" }, 400);
     patch.category = category;
     patch.category_source = "user";
+  }
+  if ("card_id" in patch && patch.card_id != null) {
+    const cardId = Number(patch.card_id);
+    const [card] = await sql`select id from cards where id = ${cardId} and user_id = ${user.id}`;
+    if (!card) return json({ error: "cartão não encontrado" }, 404);
   }
 
   const [row] = await sql`update bills set ${sql(patch)}

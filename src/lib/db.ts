@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { streak, summarize, type MonthLedger } from "./budget.ts";
 import { buildModel, type CategoryModel } from "./categorize.ts";
 import { anomalies, forecast, goalProgress, insights, pace, project, type Goal } from "./insights.ts";
+import { applyCreditCost, deriveInvoice, type Card, type Invoice } from "./cards.ts";
 
 // Server-only. `import.meta.env` is populated from .env in dev/build and is
 // undefined when this module is imported from a plain node script; `process.env`
@@ -31,6 +32,7 @@ export const sql = new Proxy((() => {}) as unknown as postgres.Sql, {
 
 export interface DbBill {
   id: number;
+  month: string; // 'YYYY-MM' — deriveInvoice() checks it even though the query below already scopes to one month
   name: string;
   category: string;
   category_source: string; // 'auto' | 'llm' | 'user' — see db/schema.sql
@@ -43,6 +45,8 @@ export interface DbBill {
   due_day: number | null;
   recurring: boolean;
   sort_order: number;
+  card_id: number | null;
+  principal_cents: number | null;
 }
 export interface DbIncome {
   id: number;
@@ -56,34 +60,65 @@ export interface DbSpend {
   category: string;
   category_source: string; // 'auto' | 'llm' | 'user' — see db/schema.sql
   note: string | null;
+  card_id: number | null;
+}
+export interface DbCard {
+  id: number;
+  label: string;
+  closing_day: number;
+  due_day: number;
+  limit_cents: number | null;
+  reserve_cents: number;
+}
+export interface DbInvoiceRow {
+  card_id: number;
+  total_cents: number | null;
+  paid: boolean;
 }
 
 export async function getMonthSnapshot(userId: number, month: string) {
   const [incomes, bills, spends] = await Promise.all([
     sql<DbIncome[]>`select id, label, amount_cents from incomes
                     where user_id = ${userId} and month = ${month} order by id`,
-    sql<DbBill[]>`select id, name, category, category_source, planned_cents, actual_cents,
+    sql<DbBill[]>`select id, month, name, category, category_source, planned_cents, actual_cents,
                          paid, pay_method, installment_current, installment_total,
-                         due_day, recurring, sort_order
+                         due_day, recurring, sort_order, card_id, principal_cents
                   from bills where user_id = ${userId} and month = ${month}
                   order by sort_order, id`,
     sql<DbSpend[]>`select id, to_char(spent_on, 'YYYY-MM-DD') as spent_on, amount_cents,
-                          category, category_source, note
+                          category, category_source, note, card_id
                    from daily_spends where user_id = ${userId} and month = ${month}
                    order by spent_on, id`,
   ]);
   return { incomes: [...incomes], bills: [...bills], spends: [...spends] };
 }
 
-/** Every spend the user ever logged — the baseline the anomaly detector needs.
+/** Every spend the user ever logged — the baseline the anomaly detector needs,
+ *  and the source deriveInvoice() buckets by invoiceMonth() (a purchase near
+ *  the closing day can belong to a different calendar month than the invoice
+ *  it lands in, so a single month's spends aren't enough for that).
  *  `note` carries the only text a spend ever has, so it's what the category
  *  model trains on; anomalies() ignores the extra columns.
  *  ponytail: whole history into memory (<1k rows); aggregate in SQL if it grows. */
 export async function getSpendHistory(userId: number) {
   const rows = await sql<DbSpend[]>`
-    select id, category, amount_cents, note,
+    select id, category, amount_cents, note, card_id,
            to_char(spent_on, 'YYYY-MM-DD') as spent_on
     from daily_spends where user_id = ${userId}`;
+  return [...rows];
+}
+
+export async function getCards(userId: number) {
+  const rows = await sql<DbCard[]>`
+    select id, label, closing_day, due_day, limit_cents, reserve_cents
+    from cards where user_id = ${userId} order by id`;
+  return [...rows];
+}
+
+export async function getInvoiceRows(userId: number, month: string) {
+  const rows = await sql<DbInvoiceRow[]>`
+    select card_id, total_cents, paid from card_invoices
+    where user_id = ${userId} and month = ${month}`;
   return [...rows];
 }
 
@@ -140,7 +175,7 @@ export async function getCategoryModel(userId: number): Promise<CategoryModel> {
  *  SSR page (admin.astro) and the client refetch (/api/month/[month]) hand to
  *  BudgetApp — they must not drift apart. */
 export async function getMonthView(userId: number, month: string, today: Date) {
-  const [snap, history, baselines, goals] = await Promise.all([
+  const [snap, history, baselines, goals, cards, invoiceRows] = await Promise.all([
     getMonthSnapshot(userId, month),
     getSpendHistory(userId),
     getMonthlyBaselines(userId),
@@ -148,8 +183,13 @@ export async function getMonthView(userId: number, month: string, today: Date) {
     sql<Goal[]>`select id, label, target_cents, by_month,
                        to_char(created_at, 'YYYY-MM') as since_month
                 from goals where user_id = ${userId} order by by_month, id`,
+    getCards(userId),
+    getInvoiceRows(userId, month),
   ]);
-  const summary = summarize(snap.incomes, snap.bills, snap.spends, month, today);
+  const invoices: Invoice[] = cards.map((c: Card) =>
+    deriveInvoice(c, month, history, snap.bills, invoiceRows.find((r) => r.card_id === c.id) ?? null),
+  );
+  const summary = applyCreditCost(summarize(snap.incomes, snap.bills, snap.spends, month, today), snap.bills, invoices);
   const projection = project(summary, month, today);
   const anoms = anomalies(history, snap.spends);
 
@@ -201,6 +241,8 @@ export async function getMonthView(userId: number, month: string, today: Date) {
     summary,
     streak: streak(ledgers, today),
     goals: goalProgress([...goals], netByMonth, fc, month),
+    cards,
+    invoices,
     insights: {
       projection, anomalies: anoms, forecast: fc, pace: pace(summary, month, today),
       lines: insights(summary, snap.bills, projection, anoms, fc, month, today),
@@ -249,6 +291,8 @@ export async function rolloverMonth(userId: number, from: string, to: string) {
         due_day: b.due_day,
         recurring: b.recurring,
         sort_order: b.sort_order,
+        card_id: b.card_id,
+        principal_cents: b.principal_cents,
       })}`;
     }
     return { created: true as const };

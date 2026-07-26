@@ -6,7 +6,7 @@ export const prerender = false;
 
 // ponytail: no `spent_on` — moving a spend across months would also have to
 // rewrite `month`, and nothing asks for it. Delete and re-add instead.
-const FIELDS = ["amount_cents", "category", "note"];
+const FIELDS = ["amount_cents", "category", "note", "card_id"];
 
 export const PATCH: APIRoute = async ({ params, request, locals }) => {
   const user = locals.user;
@@ -33,6 +33,11 @@ export const PATCH: APIRoute = async ({ params, request, locals }) => {
     patch.category_source = "user";
   }
   if ("note" in patch) patch.note = String(patch.note ?? "").trim() || null;
+  if ("card_id" in patch && patch.card_id != null) {
+    const cardId = Number(patch.card_id);
+    const [card] = await sql`select id from cards where id = ${cardId} and user_id = ${user.id}`;
+    if (!card) return json({ error: "cartão não encontrado" }, 404);
+  }
 
   const [row] = await sql`update daily_spends set ${sql(patch)}
                           where id = ${id} and user_id = ${user.id} returning id`;

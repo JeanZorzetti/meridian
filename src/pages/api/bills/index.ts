@@ -22,6 +22,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ? { category: picked, source: "user" as const }
     : await classifyWithLLM(name, await getCategoryModel(user.id));
 
+  let card_id: number | null = null;
+  if (b.card_id != null) {
+    const [card] = await sql`select id from cards where id = ${b.card_id} and user_id = ${user.id}`;
+    if (!card) return json({ error: "cartão não encontrado" }, 404);
+    card_id = card.id;
+  }
+
   const [row] = await sql`insert into bills ${sql({
     user_id: user.id,
     month: b.month,
@@ -37,6 +44,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     due_day: b.due_day ?? null,
     recurring: b.recurring ?? true,
     sort_order: Math.trunc(b.sort_order ?? 0),
+    card_id,
+    // What actually became cash in a financed purchase (PIX no crédito
+    // parcelado). Null = no known interest — interestOf() derives the rest.
+    principal_cents: b.principal_cents == null ? null : Math.trunc(b.principal_cents),
   })} returning id`;
   return json({ id: row.id }, 201);
 };

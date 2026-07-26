@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { brlToCents, centsToBRL, type Streak, type Summary } from "@/lib/budget";
 import { CATEGORIES } from "@/lib/categorize";
 import type { Anomaly, GoalView, MonthForecast, Pace, Projection } from "@/lib/insights";
+import { interestOf, invoiceMonth } from "@/lib/cards";
 import { Badge } from "@/components/ui/badge";
 
 // ---- types (match the /api/month JSON shape; db.ts is server-only) ----
@@ -11,10 +12,22 @@ interface ApiBill {
   actual_cents: number | null; paid: boolean; pay_method: string | null;
   installment_current: number | null; installment_total: number | null;
   due_day: number | null; recurring: boolean; sort_order: number;
+  card_id: number | null; principal_cents: number | null;
 }
 interface ApiSpend {
   id: number; spent_on: string; amount_cents: number;
-  category: string; category_source: string; note: string | null;
+  category: string; category_source: string; note: string | null; card_id: number | null;
+}
+interface ApiCard {
+  id: number; label: string; closing_day: number; due_day: number;
+  limit_cents: number | null; reserve_cents: number;
+}
+// One per card, for the month being viewed — see deriveInvoice() in src/lib/cards.ts.
+interface ApiInvoice {
+  card_id: number; card_label: string; month: string;
+  itemized_cents: number; installments_cents: number; reserve_cents: number;
+  expected_cents: number; total_cents: number | null; paid: boolean;
+  unitemized_cents: number | null; limit_cents: number | null; used_cents: number;
 }
 // `forecast` is the months ahead; today only `lines` renders it. It's in the
 // payload so a panel can use the numbers without a second roundtrip.
@@ -25,6 +38,7 @@ interface ApiInsights {
 interface MonthData {
   month: string; incomes: ApiIncome[]; bills: ApiBill[]; spends: ApiSpend[];
   summary: Summary; streak: Streak; goals: GoalView[]; insights: ApiInsights;
+  cards: ApiCard[]; invoices: ApiInvoice[];
 }
 
 // Shared <datalist> for every category input. Native autocomplete over a known
@@ -270,6 +284,7 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
     return [...map.entries()];
   }, [data.bills]);
   const empty = data.bills.length === 0 && data.incomes.length === 0;
+  const cardsById = useMemo(() => new Map(data.cards.map((c) => [c.id, c])), [data.cards]);
 
   return (
     <div className="wrap py-6">
@@ -342,23 +357,28 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
                 {ins.pace && <PaceLine pace={ins.pace} />}
               </div>
             </div>
-            <div className="border-border mt-6 grid grid-cols-2 rounded-lg border sm:grid-cols-5">
+            <div className={`border-border mt-6 grid grid-cols-2 rounded-lg border ${data.cards.length ? "sm:grid-cols-6" : "sm:grid-cols-5"}`}>
               <Metric label="Entrada" value={centsToBRL(s.income_cents)} />
               <Metric label="Comprometido" value={centsToBRL(s.committed_cents)} />
               <Metric label="Sobra" value={centsToBRL(s.sobra_cents)} tone={s.sobra_cents < 0 ? "rose" : "mint"} />
               <Metric label="Gasto no mês" value={centsToBRL(s.spent_cents)} />
               <Metric label="A pagar" value={centsToBRL(s.unpaid_cents)} tone={s.unpaid_cents > 0 ? "rose" : undefined} />
+              {/* only once a card exists — otherwise it's the same number as
+                  Comprometido and would just be visual noise. */}
+              {data.cards.length > 0 && <Metric label="Sai da conta" value={centsToBRL(s.cash_out_cents)} />}
             </div>
             <InsightsPanel lines={ins.lines} />
           </section>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <BillsPanel month={month} groups={groups} incomes={data.incomes} act={act} />
+            <BillsPanel month={month} groups={groups} incomes={data.incomes} cards={data.cards} act={act} />
             <div className="flex flex-col gap-6">
-              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} summary={s} notify={notify} />
+              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} summary={s}
+                notify={notify} cards={data.cards} cardsById={cardsById} />
               <CategoryBreakdown data={s.by_category} rows={[...data.bills, ...data.spends]} />
             </div>
           </div>
+          <CardsPanel month={month} cards={data.cards} invoices={data.invoices} act={act} />
           <GoalsPanel goals={data.goals} act={act} />
           <Trends />
         </>
@@ -407,8 +427,8 @@ function EmptyMonth({ month, onRollover, onSeedIncome, busy }: {
 }
 
 // ---- bills ----
-function BillsPanel({ month, groups, incomes, act }: {
-  month: string; groups: [string, ApiBill[]][]; incomes: ApiIncome[];
+function BillsPanel({ month, groups, incomes, cards, act }: {
+  month: string; groups: [string, ApiBill[]][]; incomes: ApiIncome[]; cards: ApiCard[];
   act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
@@ -464,7 +484,7 @@ function BillsPanel({ month, groups, incomes, act }: {
               <span className="eyebrow">{cat}</span>
               <span className="tnum text-muted-foreground text-xs">{centsToBRL(subtotal)}</span>
             </div>
-            {sorted.map((b) => <BillRow key={b.id} bill={b} month={month} act={act} />)}
+            {sorted.map((b) => <BillRow key={b.id} bill={b} month={month} cards={cards} act={act} />)}
           </div>
         );
       })}
@@ -495,8 +515,8 @@ function IncomeRow({ income: inc, act }: {
   );
 }
 
-function BillRow({ bill: b, month, act }: {
-  bill: ApiBill; month: string; act: (fn: () => Promise<unknown>) => Promise<void>;
+function BillRow({ bill: b, month, cards, act }: {
+  bill: ApiBill; month: string; cards: ApiCard[]; act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const badge = dueBadge(month, b.due_day, b.paid);
@@ -532,6 +552,11 @@ function BillRow({ bill: b, month, act }: {
           {b.pay_method && (
             <span className="text-muted-foreground shrink-0 text-[10px]">{b.pay_method}</span>
           )}
+          {b.card_id != null && (
+            <span className="border-border text-muted-foreground shrink-0 rounded-full border px-1.5 text-[10px]">
+              {cards.find((c) => c.id === b.card_id)?.label ?? "cartão"}
+            </span>
+          )}
         </button>
 
         {/* edits whichever value the math actually uses; the editor below splits them */}
@@ -549,14 +574,14 @@ function BillRow({ bill: b, month, act }: {
           className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
       </div>
 
-      {open && <BillEditor bill={b} act={act} />}
+      {open && <BillEditor bill={b} cards={cards} act={act} />}
     </div>
   );
 }
 
 // ---- expanded editor: everything secondary lives here, not in the row ----
-function BillEditor({ bill: b, act }: {
-  bill: ApiBill; act: (fn: () => Promise<unknown>) => Promise<void>;
+function BillEditor({ bill: b, cards, act }: {
+  bill: ApiBill; cards: ApiCard[]; act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const patch = (body: Record<string, unknown>) => act(() => api(`/api/bills/${b.id}`, "PATCH", body));
   // Local state for the two installment inputs: they commit together (a current
@@ -600,6 +625,21 @@ function BillEditor({ bill: b, act }: {
           <option value="cartão">cartão</option>
         </select>
       </Field>
+      {cards.length > 0 && (
+        <Field label="cartão">
+          <select value={b.card_id ?? ""} className={`${INPUT} w-full`}
+            onChange={(e) => patch({ card_id: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">—</option>
+            {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </Field>
+      )}
+      {b.card_id != null && (
+        <Field label="valor enviado (se financiado)">
+          <MoneyInput cents={b.principal_cents} placeholder="sem juros" className="w-full"
+            onCommit={(c) => patch({ principal_cents: c })} />
+        </Field>
+      )}
       <Field label="planejado">
         <MoneyInput cents={b.planned_cents} className="w-full"
           onCommit={(c) => patch({ planned_cents: c })} />
@@ -730,6 +770,197 @@ function CategoryBreakdown({ data, rows }: {
           <span className="tnum">{accepted}</span> de <span className="tnum">{rows.length}</span> sugestões aceitas
         </div>
       )}
+    </section>
+  );
+}
+
+// ---- credit cards: the fatura is always derived, never a line the user types
+// in (see deriveInvoice() in src/lib/cards.ts). This panel only ever writes
+// three things: a card's own dates/limit/reserve, a bill's card_id+principal
+// (the financed-purchase form below), and the extrato's real total once it
+// arrives — everything else on screen is arithmetic over rows that already exist.
+function InvoiceRow({ invoice: inv, month, act }: {
+  invoice: ApiInvoice; month: string; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const pct = inv.limit_cents ? Math.min(100, Math.round((inv.used_cents / inv.limit_cents) * 100)) : null;
+  const setExtrato = (total_cents: number | null, paid: boolean) =>
+    act(() => api("/api/invoices", "POST", { card_id: inv.card_id, month, total_cents, paid }));
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{inv.card_label}</span>
+        <div className="flex items-center gap-2">
+          {inv.paid
+            ? <Badge variant="secondary">paga</Badge>
+            : (
+              <button onClick={() => setExtrato(inv.total_cents, true)}
+                className="border-border hover:bg-accent inline-flex h-7 items-center rounded-md border px-2 text-xs">marcar paga</button>
+            )}
+          <button aria-label="excluir cartão"
+            onClick={() => confirm(`Excluir o cartão "${inv.card_label}"? Contas e gastos já lançados continuam, só soltos do cartão.`)
+              && act(() => api(`/api/cards/${inv.card_id}`, "DELETE"))}
+            className="text-foreground/25 hover:text-destructive focus-visible:text-destructive text-lg leading-none">×</button>
+        </div>
+      </div>
+      <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <span>itemizado <span className="tnum text-foreground">{centsToBRL(inv.itemized_cents)}</span></span>
+        <span>parcelas <span className="tnum text-foreground">{centsToBRL(inv.installments_cents)}</span></span>
+        {inv.reserve_cents > 0 && <span>reserva <span className="tnum text-foreground">{centsToBRL(inv.reserve_cents)}</span></span>}
+        <span>previsto <span className="tnum text-foreground">{centsToBRL(inv.expected_cents)}</span></span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground shrink-0 text-xs">extrato</span>
+        <MoneyInput cents={inv.total_cents} placeholder="ainda não chegou" className="w-32"
+          onCommit={(c) => setExtrato(c, inv.paid)} />
+        {inv.unitemized_cents != null && (
+          <span className="text-muted-foreground text-xs">
+            <span className="tnum">{centsToBRL(inv.unitemized_cents)}</span> não itemizados
+          </span>
+        )}
+      </div>
+      {inv.limit_cents != null && pct != null && (
+        <div className="mt-2">
+          <div className="bg-surface-1 h-1.5 overflow-hidden rounded-full">
+            <div className={`h-full rounded-full ${pct >= 90 ? "bg-destructive" : "bg-primary"}`} style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-muted-foreground mt-1 text-xs">
+            <span className="tnum">{centsToBRL(inv.used_cents)}</span> / <span className="tnum">{centsToBRL(inv.limit_cents)}</span> do limite
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddCard({ onDone, act }: {
+  onDone: () => void; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [label, setLabel] = useState("");
+  const [closingDay, setClosingDay] = useState("");
+  const [dueDay, setDueDay] = useState("");
+  const [limit, setLimit] = useState("");
+  const submit = () => {
+    const closing_day = closingDay.trim() ? Math.min(31, Math.max(1, Math.trunc(Number(closingDay)))) : null;
+    const due_day = dueDay.trim() ? Math.min(31, Math.max(1, Math.trunc(Number(dueDay)))) : null;
+    if (!label.trim() || !closing_day || !due_day) return;
+    act(() => api("/api/cards", "POST", {
+      label: label.trim(), closing_day, due_day,
+      limit_cents: limit.trim() ? brlToCents(limit) : null,
+    })).then(onDone);
+  };
+  return (
+    <div className="border-border bg-surface-1/40 flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+      <input autoFocus placeholder="nome (ex: Nubank)" value={label} onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+      <input placeholder="fecha (dia)" inputMode="numeric" value={closingDay} onChange={(e) => setClosingDay(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-24 text-center`} />
+      <input placeholder="vence (dia)" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-24 text-center`} />
+      <input placeholder="limite (opcional)" value={limit} inputMode="decimal" onChange={(e) => setLimit(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-32 text-right`} />
+      <button onClick={submit}
+        className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+      <button onClick={onDone} className="text-muted-foreground text-sm">cancelar</button>
+    </div>
+  );
+}
+
+// ---- PIX no crédito / compra parcelada com juros: the one form that creates a
+// financed bill. Interest is shown before saving, not after — the number meant
+// to change behavior has to land before the commitment, not buried in a report
+// afterward. Posts to the invoice's due month (invoiceMonth()), not necessarily
+// the month being viewed — a purchase near the closing day bills next cycle.
+function AddFinancedPurchase({ cards, onDone, act }: {
+  cards: ApiCard[]; onDone: () => void;
+  act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [cardId, setCardId] = useState(String(cards[0]?.id ?? ""));
+  const [name, setName] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [principal, setPrincipal] = useState("");
+  const [installments, setInstallments] = useState("1");
+  const [installmentValue, setInstallmentValue] = useState("");
+
+  const card = cards.find((c) => String(c.id) === cardId);
+  const n = posInt(installments) ?? 1;
+  const principal_cents = brlToCents(principal);
+  const planned_cents = brlToCents(installmentValue);
+  const preview = principal_cents > 0 && planned_cents > 0
+    ? interestOf({ planned_cents, installment_total: n, principal_cents })
+    : null;
+
+  const submit = () => {
+    if (!card || !name.trim() || principal_cents <= 0 || planned_cents <= 0) return;
+    act(() => api("/api/bills", "POST", {
+      month: invoiceMonth(date, card.closing_day, card.due_day),
+      name: name.trim(), planned_cents, card_id: card.id, principal_cents,
+      installment_current: 1, installment_total: n, due_day: card.due_day,
+    })).then(onDone);
+  };
+
+  return (
+    <div className="border-border bg-surface-1/40 flex flex-col gap-2 border-b px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <select aria-label="cartão" value={cardId} onChange={(e) => setCardId(e.target.value)} className={`${INPUT} w-32 shrink-0`}>
+          {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+        <input autoFocus placeholder="nome (ex: PIX loja)" value={name} onChange={(e) => setName(e.target.value)}
+          className={`${INPUT} flex-1`} />
+        <input type="date" aria-label="data da compra" value={date} onChange={(e) => setDate(e.target.value)} className={INPUT} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input placeholder="valor enviado" value={principal} inputMode="decimal" onChange={(e) => setPrincipal(e.target.value)}
+          className={`${INPUT} tnum w-32 text-right`} />
+        <span className="text-muted-foreground text-xs">em</span>
+        <input placeholder="parcelas" inputMode="numeric" value={installments} onChange={(e) => setInstallments(e.target.value)}
+          className={`${INPUT} tnum w-16 text-center`} />
+        <span className="text-muted-foreground text-xs">x de</span>
+        <input placeholder="valor da parcela" value={installmentValue} inputMode="decimal" onChange={(e) => setInstallmentValue(e.target.value)}
+          className={`${INPUT} tnum w-32 text-right`} />
+        <button onClick={submit}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+        <button onClick={onDone} className="text-muted-foreground text-sm">cancelar</button>
+      </div>
+      {preview && (
+        <p className={`text-xs ${preview.total_cents > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+          {preview.total_cents > 0
+            ? <>Juros: <span className="tnum">{centsToBRL(preview.total_cents)}</span> no total (<span className="tnum">{centsToBRL(preview.per_installment_cents)}</span>/parcela).</>
+            : "Sem juros — valor enviado cobre o total das parcelas."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CardsPanel({ month, cards, invoices, act }: {
+  month: string; cards: ApiCard[]; invoices: ApiInvoice[];
+  act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [financing, setFinancing] = useState(false);
+  return (
+    <section className="reveal border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
+      <div className={`flex items-center justify-between px-4 py-3 ${cards.length || adding || financing ? "border-border border-b" : ""}`}>
+        <h2 className="text-sm font-semibold tracking-[-0.01em]">Cartões</h2>
+        <div className="flex items-center gap-2">
+          {cards.length > 0 && (
+            <button onClick={() => setFinancing((f) => !f)}
+              className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">+ PIX no crédito</button>
+          )}
+          <button onClick={() => setAdding((a) => !a)}
+            className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">+ novo cartão</button>
+        </div>
+      </div>
+      {adding && <AddCard onDone={() => setAdding(false)} act={act} />}
+      {financing && cards.length > 0 && <AddFinancedPurchase cards={cards} onDone={() => setFinancing(false)} act={act} />}
+      {cards.length === 0
+        ? (!adding && <p className="text-muted-foreground px-4 py-6 text-center text-xs">Nenhum cartão cadastrado.</p>)
+        : (
+          <div className="divide-border flex flex-col divide-y">
+            {invoices.map((inv) => <InvoiceRow key={inv.card_id} invoice={inv} month={month} act={act} />)}
+          </div>
+        )}
     </section>
   );
 }
@@ -880,16 +1111,18 @@ function Trends() {
 }
 
 // ---- daily log ----
-function DailyPanel({ month, spends, anomalies, act, summary, notify }: {
+function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, cardsById }: {
   month: string; spends: ApiSpend[]; anomalies: Anomaly[];
   act: (fn: () => Promise<unknown>) => Promise<void>;
   summary: Summary; notify: (msg: string, tone?: "info" | "error") => void;
+  cards: ApiCard[]; cardsById: Map<number, ApiCard>;
 }) {
   const inMonth = todayISO().startsWith(month) ? todayISO() : `${month}-01`;
   const [date, setDate] = useState(inMonth);
   const [amount, setAmount] = useState("");
   const [cat, setCat] = useState("");
   const [note, setNote] = useState("");
+  const [cardId, setCardId] = useState("");
   useEffect(() => setDate(todayISO().startsWith(month) ? todayISO() : `${month}-01`), [month]);
 
   const flagged = useMemo(() => new Map(anomalies.map((a) => [a.id, a])), [anomalies]);
@@ -911,6 +1144,7 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify }: {
     // No category sent -> the server infers it from the note (src/lib/categorize.ts).
     act(() => api("/api/spends", "POST", {
       spent_on: date, amount_cents: cents, category: cat.trim() || null, note: note.trim() || null,
+      card_id: cardId ? Number(cardId) : null,
     })).then(() => { setAmount(""); setNote(""); });
   };
 
@@ -930,6 +1164,14 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify }: {
             onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} w-32`} />
           <input placeholder="nota (opcional)" value={note} onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+          {/* only appears once a card exists — nothing changes for cash-only users */}
+          {cards.length > 0 && (
+            <select aria-label="cartão" value={cardId} onChange={(e) => setCardId(e.target.value)}
+              className={`${INPUT} w-24 shrink-0`}>
+              <option value="">caixa</option>
+              {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          )}
           <button onClick={submit}
             className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 shrink-0 items-center rounded-md px-3 text-sm">Lançar</button>
         </div>
@@ -961,6 +1203,9 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify }: {
                   <span className="text-destructive shrink-0 text-xs" role="img"
                     aria-label={`fora do padrão de ${odd.category}, mediana ${centsToBRL(odd.median_cents)}`}
                     title={`Fora do padrão de ${odd.category} — mediana ${centsToBRL(odd.median_cents)}`}>⚠</span>
+                )}
+                {sp.card_id != null && (
+                  <span className="text-muted-foreground shrink-0 text-[10px]">{cardsById.get(sp.card_id)?.label ?? "cartão"}</span>
                 )}
                 <span className="min-w-0 truncate text-sm">{sp.note || "—"}</span>
               </div>

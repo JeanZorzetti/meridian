@@ -94,3 +94,48 @@ create index if not exists idx_bills_user_month on bills(user_id, month);
 create index if not exists idx_incomes_user_month on incomes(user_id, month);
 create index if not exists idx_spends_user_month on daily_spends(user_id, month);
 create index if not exists idx_sessions_expires on sessions(expires_at);
+
+-- Credit cards: the fatura is never a budget line the user types in — it's
+-- derived from cards + daily_spends + bills (see deriveInvoice() in
+-- src/lib/cards.ts). closing_day/due_day decide which invoice a spend or
+-- installment lands in. reserve_cents is a manual monthly allowance for card
+-- spend the user chooses not to itemize in daily_spends (the "misto" model).
+create table if not exists cards (
+  id serial primary key,
+  user_id int not null references users(id) on delete cascade,
+  label text not null,
+  closing_day int not null,
+  due_day int not null,
+  limit_cents int,                      -- null = not informed (≠ zero)
+  reserve_cents int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+-- Only what the user actually types when the extrato arrives: the real total
+-- and whether it's paid. Everything else about an invoice — itemized spend,
+-- installments, reserve, unitemized gap — is arithmetic, never stored twice.
+create table if not exists card_invoices (
+  id serial primary key,
+  user_id int not null references users(id) on delete cascade,
+  card_id int not null references cards(id) on delete cascade,
+  month text not null,                  -- 'YYYY-MM' — mês do vencimento
+  total_cents int,                      -- null until the extrato arrives
+  paid boolean not null default false,
+  unique (card_id, month)
+);
+
+-- null card_id = caixa/débito/pix à vista. `set null`, not cascade: deleting a
+-- card must never delete the spend/bill row it tagged — that would delete a
+-- real transaction, not undo a categorization.
+alter table daily_spends add column if not exists card_id int references cards(id) on delete set null;
+alter table bills        add column if not exists card_id int references cards(id) on delete set null;
+-- What actually became cash in a financed purchase (PIX no crédito parcelado,
+-- compra parcelada com juros). Null = no known interest for this bill.
+-- Interest itself is derived (planned_cents × installment_total −
+-- principal_cents), never stored — see interestOf() in src/lib/cards.ts.
+alter table bills add column if not exists principal_cents int;
+
+create index if not exists idx_cards_user on cards(user_id);
+create index if not exists idx_card_invoices_user_month on card_invoices(user_id, month);
+create index if not exists idx_spends_card on daily_spends(card_id) where card_id is not null;
+create index if not exists idx_bills_card on bills(card_id) where card_id is not null;

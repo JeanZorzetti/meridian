@@ -31,6 +31,10 @@ export interface Summary {
   paid_cents: number;
   burndown: { day: number; spent_cents: number; remaining_cents: number }[];
   by_category: { category: string; cents: number }[]; // daily spends grouped, desc
+  // Credit layer (src/lib/cards.ts). Defaults below mean "no cards": identical
+  // to committed_cents / zero, so a user who never touches cards sees no change.
+  cash_out_cents: number; // liquidity view — committed_cents with card bills swapped for their invoice's real/expected total
+  interest_cents: number; // juros/tarifas embutidos nas parcelas financiadas deste mês
 }
 
 /** "R$ 6.328,18" | " R$  -   " | "-R$ 852,39" -> integer cents. */
@@ -206,5 +210,7 @@ export function summarize(
     paid_cents,
     burndown,
     by_category,
+    cash_out_cents: committed_cents,
+    interest_cents: 0,
   };
 }
