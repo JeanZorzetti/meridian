@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+# SSR-only and internal: nothing to index, and /styleguide would rank for the
+# design system instead of the product.
+Disallow: /admin
+Disallow: /login
+Disallow: /api/
+Disallow: /styleguide
+
+Sitemap: https://meridian.roilabs.com.br/sitemap.xml

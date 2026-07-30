@@ -10,6 +10,10 @@ const {
   title = "Meridian — See every dollar. Own every decision.",
   description = "A precision-built personal finance engine. Track net worth, spending, and investments with the clarity of a professional trading desk.",
 } = Astro.props;
+
+// Absolute and self-referencing, so the vendor host that still serves this app
+// consolidates onto the real domain instead of competing with it.
+const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!doctype html>
@@ -21,9 +25,11 @@ const {
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
     <meta name="theme-color" content="#08080a" />
     <script is:inline>
       // Set before first paint so reveal targets start hidden without flashing.
