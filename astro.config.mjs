@@ -9,6 +9,7 @@ import tailwindcss from '@tailwindcss/vite';
 // Default output stays `static`: marketing pages prerender. The Node adapter
 // lets /admin, /login and /api/* opt into on-demand SSR via `prerender = false`.
 export default defineConfig({
+  site: 'https://meridian.roilabs.com.br',
   integrations: [react()],
   adapter: node({ mode: 'standalone' }),
 
@@ -20,6 +21,10 @@ export default defineConfig({
     // Baked in at build time: adding a domain needs a rebuild, not just an env var.
     allowedDomains: [
       { protocol: 'https', hostname: 'sirius-crm-meridian.7c17iw.easypanel.host' },
+      // Kept alongside the vendor host during the domain migration: the vendor
+      // host keeps serving until DNS cuts over, and dropping it early breaks
+      // every POST on the live site.
+      { protocol: 'https', hostname: 'meridian.roilabs.com.br' },
     ],
   },
 
