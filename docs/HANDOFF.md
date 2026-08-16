@@ -524,6 +524,18 @@ foram tocados: eles são do site. O app ganhou `build:app` e `start:app` ao lado
 O serviço novo precisa da `DATABASE_URL` nas variáveis de ambiente, e do
 `ANTHROPIC_API_KEY` se quiser a categorização por LLM.
 
+**Sobre a versão do Node, que foi o que derrubou o site na 8.5:** aqui o risco é
+baixo — o Next 16 pede `>=20.9.0` e o container roda alguma 22.x, então ele cabe
+com folga, e nenhum comando de deploy do app usa flag `--env-file`. Mas apareceu
+uma inconsistência de propósito duvidoso: o `package.json` da raiz declara
+`engines: node >=22.12.0` e o `.nvmrc` diz só `22`. Se o Nixpacks escolher uma
+22.0–22.11, o npm apenas **avisa** e segue (não é `engine-strict`), então isso
+não quebra nada hoje — mas é a mesma pin frouxa que a 8.5 manda apertar.
+
+Vale notar que **um único comando no terminal do container resolve as duas
+coisas**: o `node --version` do Passo 0 da 8.5 é exatamente o número que falta
+para fixar o `.nvmrc` e alinhar com o `engines`.
+
 **Rodada C**, só depois de o `/app` estar conferido no ar: apagar `/admin`,
 `/login`, `/api/*` e o `middleware.ts` do Astro, deixar `/admin` respondendo 301
 para `/app`, e apontar o "Sign in" do `Nav.astro` e do `Pricing.astro` para lá.
