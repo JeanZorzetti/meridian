@@ -20,8 +20,10 @@
 //   - A session-level advisory lock serializes concurrent runners, so two
 //     containers booting at once cannot both apply 0007.
 //
-// Safe to run on every deploy: with nothing pending it takes one round trip and
-// changes nothing.
+// Safe to run on every deploy, and that is exactly how it runs: the root
+// `start` script calls this before handing over to the server, so every boot of
+// the container migrates first. With nothing pending it costs one round trip
+// and changes nothing. MIGRATE_SKIP=1 is the escape hatch — see main().
 import { readdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -86,8 +88,22 @@ async function ensureTable(sql) {
 }
 
 async function main() {
+  // The container's start command runs this before the server, so a migration
+  // that cannot run takes the whole site down with it. That is the right
+  // default — a server talking to a schema it does not expect fails invisibly,
+  // and invisible is the failure mode this script exists to kill — but it
+  // leaves whoever is watching a crash-looping deploy with no way out that
+  // doesn't require a commit. This is that way out: set MIGRATE_SKIP=1 in the
+  // environment, get the site back up, fix the migration, unset it.
+  if (process.env.MIGRATE_SKIP === "1") {
+    console.log("MIGRATE_SKIP=1 — migrações puladas nesta inicialização");
+    return;
+  }
+
   const { DATABASE_URL } = process.env;
-  if (!DATABASE_URL) throw new Error("DATABASE_URL não definido (.env)");
+  if (!DATABASE_URL) {
+    throw new Error("DATABASE_URL não definido (no .env local, ou nas variáveis do ambiente)");
+  }
 
   const statusOnly = process.argv.includes("--status");
   const migrations = readMigrations();
