@@ -1,0 +1,29 @@
+{
+  "name": "@meridian/app",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "description": "Next.js App Router — the user area and the operation panel, served under /app.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@meridian/core": "*",
+    "@meridian/db": "*",
+    "@meridian/ui": "*",
+    "next": "^16.3.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^5.9.3"
+  }
+}

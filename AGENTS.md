@@ -3,11 +3,17 @@
 npm workspaces. Run every command from the repo root.
 
 ```
-apps/site      Astro — institutional site, and (for now) /login, /admin, /api/*
+apps/site      Astro — institutional site, and (until the cutover) /login, /admin, /api/*
+apps/app       Next.js App Router — the same login, panel and API, mounted at /app
 packages/core  money math: budget, insights, cards, categorize. Pure, integer cents, zero I/O
 packages/db    Postgres client, queries, sessions, migrations
 packages/ui    Dark Swiss tokens + shadcn primitives, shared by every app
 ```
+
+**Both apps currently serve the budget panel, and only the site is deployed.**
+`BudgetApp.tsx` and `classify-llm.ts` exist in both, each marked as a temporary
+duplicate at the top of the file — change both or neither. The site's copies are
+deleted once the app is live at /app (rodada C in docs/HANDOFF.md §8.3).
 
 `packages/core` is the one place that decides what a number means. Both apps
 import it; neither reimplements it. Its tests (`npm test`) are the contract.
@@ -23,18 +29,57 @@ Two things break quietly if you forget them:
   the top of `packages/ui/src/styles/global.css`. `apps/` is already covered;
   anywhere else is not, and the symptom is CSS that silently doesn't exist.
 - **Workspace packages export raw `.ts`.** An app's bundler must inline them —
-  see `ssr.noExternal` in `apps/site/astro.config.mjs`. Without it the build
-  passes and the server dies on first import.
+  `ssr.noExternal` in `apps/site/astro.config.mjs`, `transpilePackages` in
+  `apps/app/next.config.ts`. Without it the build passes and the server dies on
+  first import.
+
+And one that only shows up in the second app: **a shared package must not lean on
+an app's ambient types.** `packages/db` read `import.meta.env.DATABASE_URL`,
+whose `ImportMetaEnv` interface is declared by whichever app is compiling — fine
+under Astro, a type error under Next. It now reads the same value through a local
+cast (`db.ts`), so the package compiles under both.
 
 ## Development
 
-When starting the dev server, use background mode:
+`apps/app` is mounted at `/app` via `basePath`, so every route it owns starts
+with that prefix and nothing outside it is claimed. Next applies the prefix to
+`<Link>` and to `redirect()` on its own, but **not** to `fetch()` and not to a
+`Location` header written by hand — both of those go through `appPath()` in
+`apps/app/src/lib/paths.ts`. A bare `/api/…` leaves the app and lands on the
+Astro site next door.
+
+```
+npm run dev          # Astro site
+npm run dev:app      # Next app  (http://localhost:3000/app)
+npm run build:all    # both, the check to run before pushing
+```
+
+`next start` reads env from the process, not from the repo-root `.env` — export
+`DATABASE_URL` before running the app outside `npm run dev`.
+
+When starting the Astro dev server, use background mode:
 
 ```
 astro dev --background
 ```
 
 Manage the background server with `astro dev stop`, `astro dev status`, and `astro dev logs`.
+
+## Deploy
+
+Two EasyPanel services from this one repo, both built by Nixpacks from the repo
+root. They differ only in which scripts they run:
+
+| Service | Install | Build | Start |
+|---|---|---|---|
+| site | *(empty)* | *(empty)* | *(empty)* |
+| app | *(empty)* | `npm run build:app` | `npm run start:app` |
+
+The site's three fields are empty on purpose — Nixpacks then reads the root
+`package.json` and runs `npm ci`, `npm run build`, `npm start`, which is what
+makes the monorepo work without a Dockerfile. **Do not write a path into them.**
+Root `build` and `start` are therefore reserved for the site; the app has its own
+`build:app` / `start:app` beside them.
 
 ## Database
 

@@ -4,10 +4,20 @@ import { buildModel, type CategoryModel } from "@meridian/core/categorize";
 import { anomalies, forecast, goalProgress, insights, pace, project, type Goal } from "@meridian/core/insights";
 import { applyCreditCost, deriveInvoice, type Card, type Invoice } from "@meridian/core/cards";
 
-// Server-only. `import.meta.env` is populated from .env in dev/build and is
-// undefined when this module is imported from a plain node script; `process.env`
-// covers both that and the standalone Node runtime in production.
+// Server-only. `import.meta.env` is Vite's, populated from .env by Astro in
+// dev/build; it is undefined when this module is imported from a plain node
+// script, and Next has no such object at all. `process.env` covers both of those
+// and the standalone Node runtime in production.
 //
+// Read through a local cast rather than the `ImportMetaEnv` interface: that type
+// is declared by whichever app is compiling, so relying on it made this shared
+// package compile under Astro and fail under Next. A package two apps import
+// cannot depend on either one's ambient types.
+function envUrl(): string | undefined {
+  const vite = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  return vite?.DATABASE_URL ?? process.env.DATABASE_URL;
+}
+
 // The client is built on first query, never on import: middleware.ts imports
 // this module, and astro build loads middleware while prerendering the
 // marketing pages — where there is no DATABASE_URL and no query to run.
@@ -15,7 +25,7 @@ import { applyCreditCost, deriveInvoice, type Card, type Invoice } from "@meridi
 let client: postgres.Sql | undefined;
 function db(): postgres.Sql {
   if (!client) {
-    const url = import.meta.env?.DATABASE_URL ?? process.env.DATABASE_URL;
+    const url = envUrl();
     if (!url) throw new Error("DATABASE_URL não definido (.env)");
     client = postgres(url, { ssl: false, onnotice: () => {} });
   }

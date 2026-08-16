@@ -7,6 +7,11 @@ automática no deploy foi tentada, derrubou o site por 7 minutos e foi
 revertida** — leia a 8.5 inteira antes de tentar de novo; ela tem um passo de
 diagnóstico que precisa vir primeiro.
 
+**O app em Next.js existe e está verificado localmente, mas não está no ar** — o
+que está em produção continua sendo só o site em Astro, servindo `/admin` e
+`/login` como sempre. Subir o app é a **rodada B da 8.3**, e depende de você
+criar o serviço no EasyPanel.
+
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
 
@@ -123,7 +128,8 @@ coberto melhor por `packages/db/seed-xlsx.mjs`.
 ```
 meridian/
 ├─ apps/
-│  └─ site/          Astro — site institucional, e por enquanto /login, /admin, /api/*
+│  ├─ site/          Astro — site institucional, e até a virada /login, /admin, /api/*
+│  └─ app/           Next.js — o mesmo login, painel e API, montados em /app
 ├─ packages/
 │  ├─ core/          matemática do dinheiro: budget, insights, cards, categorize
 │  ├─ db/            Postgres, sessões, migrações
@@ -131,6 +137,8 @@ meridian/
 ├─ docs/
 └─ package.json      (workspaces — todo comando roda daqui, da raiz)
 ```
+
+Por enquanto **os dois apps têm o painel, e só o site está no ar** — ver 8.3.
 
 ### Por que separar
 
@@ -165,10 +173,14 @@ Todos rodam da **raiz** do projeto.
 
 | Comando | O que faz |
 |---|---|
-| `npm run dev` | servidor de desenvolvimento |
-| `npm run build` | build de produção |
+| `npm run dev` | servidor de desenvolvimento do **site** |
+| `npm run build` | build de produção do **site** |
+| `npm start` | sobe o site em produção — é o que o container do site roda |
+| `npm run dev:app` | servidor de desenvolvimento do **app** (`localhost:3000/app`) |
+| `npm run build:app` | build de produção do **app** |
+| `npm run start:app` | sobe o app em produção — é o que o container do app roda |
+| `npm run build:all` | os dois builds; é o que conferir antes de um push |
 | `npm test` | todos os testes (matemática + migrações) |
-| `npm start` | sobe o servidor de produção — é o que o container roda |
 | `npm run db:migrate` | aplica migrações pendentes |
 | `npm run db:migrate -- --status` | só inspeciona, não muda nada |
 | `npm run db:seed` | cria/redefine o usuário admin |
@@ -272,8 +284,21 @@ do deploy. Tirar essa última pessoa do caminho é a pendência 8.5.
   pelos `@source` no topo de `packages/ui/src/styles/global.css`, que apontam
   para `apps/`. Fora dali, o sintoma é CSS que silenciosamente não existe.
 - **Os pacotes exportam `.ts` cru.** O bundler de cada app precisa inliná-los —
-  veja `ssr.noExternal` no `apps/site/astro.config.mjs`. Sem isso o build passa
-  e o servidor morre no primeiro import.
+  `ssr.noExternal` no `apps/site/astro.config.mjs`, `transpilePackages` no
+  `apps/app/next.config.ts`. Sem isso o build passa e o servidor morre no
+  primeiro import.
+- **No app Next, caminho absoluto passa pelo `appPath()`.** O `basePath: "/app"`
+  é aplicado sozinho ao `<Link>` e ao `redirect()`, mas **não** ao `fetch()` nem
+  a um cabeçalho `Location` escrito à mão. Um `/api/...` cru sai do app e cai no
+  site ao lado — que responde 404, ou coisa pior antes da virada da rodada C.
+- **Um pacote compartilhado não pode usar os tipos ambiente de um app.** O
+  `packages/db` lia `import.meta.env.DATABASE_URL`, e quem declara `ImportMetaEnv`
+  é o app que está compilando: funcionava no Astro, erro de tipo no Next.
+- **`.reveal` e `.bar` dependem de JavaScript do layout.** O `global.css` deixa
+  todo `.reveal` com `opacity: 0` enquanto o `<html>` tem a classe `.js`, e as
+  barras de categoria só ganham largura em `.js .reveal.is-visible .bar`. Um app
+  novo que use esses componentes precisa do observer (no Next, o
+  `Enhancements.tsx`), senão a tela some e as barras aparecem todas cheias.
 - **O container roda uma versão do Node diferente da sua máquina, e o `.nvmrc`
   não diz qual.** Ele contém só `22`, então o Nixpacks escolhe alguma 22.x — e
   a máquina de desenvolvimento hoje roda Node 24. Foi essa diferença que
@@ -360,7 +385,7 @@ serve mais ali. **Decisão certa, motivo diferente.**
 |---|---|---|
 | 8.1 | Rodar a migração em produção | ✅ 2026-08-16 |
 | 8.2 | Publicar o checkpoint | ✅ 2026-08-16 |
-| 8.3 | `apps/app` em Next.js (resto da Fase 1) | ⏳ **próxima etapa grande** |
+| 8.3 | `apps/app` em Next.js (resto da Fase 1) | 🔨 **construído e verificado local; falta subir** |
 | 8.4 | Trocar a senha do Postgres | ⚠️ **aberta, e só você pode fazer** |
 | 8.5 | Migração automática no deploy | ❌ **tentada e revertida** — leia antes de repetir |
 | 8.6 | Confirmar que o app lê o banco em produção | ✅ 2026-08-16 |
@@ -407,12 +432,109 @@ jeito mais traiçoeiro. Escrever `node ./apps/site/dist/server/entry.mjs` ali
 deixaria de migrar o banco, sem aviso: a falha invisível de volta, escondida num
 campo de formulário que não existe em arquivo nenhum do repositório.
 
-### 8.3. Próxima etapa (o resto da Fase 1)
+### 8.3. `apps/app` em Next.js 🔨 rodada A feita em 2026-08-16
 
-Criar o `apps/app` em Next.js, mover `/login`, `/admin` e as 15 rotas de API para
-lá, e quebrar o `BudgetApp.tsx` em telas separadas (`/app/orcamento`,
-`/app/cartoes`, `/app/metas`). Depois disso o Astro fica só com o institucional
-e o blog.
+Dividido em três rodadas, para que nada vá para produção antes de ter sido visto
+funcionando. **A rodada A está pronta e não mudou nada no ar** — o site continua
+servindo `/login` e `/admin` exatamente como antes.
+
+| Rodada | O quê | Estado |
+|---|---|---|
+| A | criar o `apps/app`, portar login, painel e as 15 rotas de API | ✅ 2026-08-16 |
+| B | subir o serviço novo no EasyPanel e conferir o `/app` no ar | ⏳ **precisa de você** |
+| C | tirar `/admin`, `/login` e `/api/*` do Astro, e redirecionar | ⏳ depois de B |
+
+**O que a rodada A fez:** Next 16.3.1 com App Router, React 19 e os mesmos tokens
+do `packages/ui`. As 15 rotas de API foram portadas com os contratos JSON
+idênticos. O `BudgetApp.tsx` foi copiado com três mudanças mecânicas: `"use
+client"` no topo, o `fetch` passando pelo `appPath()`, e o formulário de logout
+idem.
+
+**A decisão de forma que mais importa:** o Next está montado com
+`basePath: "/app"`, ou seja, **ele só reivindica `/app`** — foi conferido que
+`/`, `/login` e `/api/trends` respondem 404 no app. Isso é o que torna a rodada B
+segura: a regra nova no EasyPanel aponta para `/app` e não tem como engolir uma
+rota do site, mesmo se estiver errada.
+
+**Não há middleware.** No Astro o `middleware.ts` guardava `/admin` e `/api/*`, e
+cada rota conferia `locals.user` de novo por cima. O middleware do Next roda por
+padrão no runtime *edge*, onde o driver do Postgres não vai — então a sessão
+seria ou uma exceção de runtime, ou um "tem cookie?" que não é autenticação. A
+conferência passou a morar junto do dado: toda página chama `requireUser()`, toda
+rota chama `apiUser()`. Rota nova sem nenhum dos dois quebra na primeira leitura
+de `user.id`, em vez de escapar calada de um padrão de matcher.
+
+**Duas coisas que quase passaram batido:**
+
+- O `global.css` esconde todo `.reveal` enquanto a classe `.js` está no `<html>`,
+  e é ele que dá largura às barras (`.js .reveal.is-visible .bar`). Sem portar o
+  observer, quatro blocos do painel ficariam com `opacity: 0` para sempre e
+  **toda barra apareceria cheia** — os mesmos números, desenhados errado. Está em
+  `src/components/Enhancements.tsx`.
+- O `packages/db` lia `import.meta.env.DATABASE_URL`, cujo tipo `ImportMetaEnv`
+  quem declara é o app que está compilando. Compilava no Astro e dava erro de
+  tipo no Next. Um pacote que dois apps importam não pode depender dos tipos de
+  nenhum dos dois; agora lê pelo mesmo caminho com um cast local.
+
+**O que foi verificado** (o servidor de verdade de pé, não só o build):
+
+| Prova | Resultado |
+|---|---|
+| `npm run build:app` | passa, 15 rotas de API + `/` + `/login`, todas dinâmicas |
+| `npm run build` (site) | passa, 3 páginas pré-renderizadas, 0 erros |
+| `npm test` | 5 suítes passam, arquivos de teste inalterados |
+| `/app/login` | 200 |
+| `/app` sem sessão | 307 → `/app/login` |
+| `/app/api/trends`, `/app/api/month/2026-08` | 401 |
+| `/`, `/login`, `/api/trends` no app | **404** — o Next não reivindica nada fora de `/app` |
+| `POST /app/api/login`, usuário inexistente | 302 → `/app/login?error=1` — **consultou o banco** |
+| `POST /app/api/login` com `Origin` de outro site | 403 |
+| `getMonthView(1, "2026-08")` | 33 contas, 3 cartões, 3 faturas, 1 meta — e 428/151 no total, batendo com a seção 5 |
+
+Os 401 valem aqui pela mesma razão da seção 5: se o `transpilePackages` não
+tivesse inlinado os pacotes, o servidor morreria no primeiro `import` e a
+resposta não seria 401.
+
+**O que não foi provado:** a tela logada renderizando. Não por falta de tentativa
+— o `ADMIN_USER` e o `ADMIN_PASSWORD` do `.env` estão **vazios** (só a
+`DATABASE_URL` está preenchida), então não havia credencial local para entrar. Os
+usuários reais no banco são `jean` (id 1) e `miridian_db`. A metade do servidor
+está provada pela linha do `getMonthView` acima, que é exatamente a consulta que
+a página nova faz; falta bater os olhos na tela, e isso é a rodada B.
+
+> Como efeito colateral: `npm run db:seed`, que "cria/redefine o usuário admin do
+> `.env`", hoje não teria usuário nenhum para criar. E o `ANTHROPIC_API_KEY`
+> também está vazio, o que desliga o último degrau da cascata de categorias
+> **localmente** — em produção quem fornece essa variável é o EasyPanel.
+
+**Rodada B — o que falta, e é você quem faz.** Criar um segundo serviço no
+EasyPanel, mesma fonte GitHub e mesma branch, com o domínio
+`meridian.roilabs.com.br` **e o caminho `/app`**. Diferente do serviço do site,
+este precisa de dois campos preenchidos:
+
+| Campo | Serviço do site | Serviço do app |
+|---|---|---|
+| Install | *(vazio)* | *(vazio)* |
+| Build | *(vazio)* | `npm run build:app` |
+| Start | *(vazio)* | `npm run start:app` |
+
+Os campos do site continuam vazios — é isso que faz o Nixpacks ler o
+`package.json` da raiz (seção 8.2), e por isso o `build` e o `start` da raiz não
+foram tocados: eles são do site. O app ganhou `build:app` e `start:app` ao lado.
+O serviço novo precisa da `DATABASE_URL` nas variáveis de ambiente, e do
+`ANTHROPIC_API_KEY` se quiser a categorização por LLM.
+
+**Rodada C**, só depois de o `/app` estar conferido no ar: apagar `/admin`,
+`/login`, `/api/*` e o `middleware.ts` do Astro, deixar `/admin` respondendo 301
+para `/app`, e apontar o "Sign in" do `Nav.astro` e do `Pricing.astro` para lá.
+Aí somem as duas duplicatas (`BudgetApp.tsx` e `classify-llm.ts`, marcadas como
+temporárias no topo de cada arquivo) e o `security.allowedDomains` do
+`astro.config.mjs` deixa de ser necessário.
+
+A quebra do `BudgetApp.tsx` em três telas (`/app/orcamento`, `/app/cartoes`,
+`/app/metas`) ficou **de propósito para depois da virada**: portar e reorganizar
+ao mesmo tempo tira a prova de que a tela não mudou. Primeiro o mesmo painel no
+lugar novo, depois a reorganização.
 
 ### 8.4. Trocar a senha do Postgres ⚠️
 
@@ -522,7 +644,7 @@ A pesquisa que originou tudo: [`docs/Pesquisa Estratégica Projeto Merdian.md`](
 | Rodada | Entrega | Estado |
 |---|---|---|
 | 1 | Migrações versionadas | ✅ feito e aplicado em produção (rodar no deploy: 8.5, em aberto) |
-| 2 | Monorepo + app Next | 🔨 metade (monorepo feito, Next falta) |
+| 2 | Monorepo + app Next | 🔨 monorepo feito; app Next construído, falta subir (8.3) |
 | 3 | Contas, e-mail, 2FA, Google, LGPD | ⏳ |
 | 4 | Capacidade e observabilidade | ⏳ |
 | 5 | Perfil Klontz + motor de dívidas | ⏳ |
