@@ -1,7 +1,8 @@
 # Meridian — Handoff
 
-**Última atualização:** 2026-08-15
-**Estado:** funcionando, verificado, **não commitado e não publicado**
+**Última atualização:** 2026-08-16
+**Estado:** funcionando, verificado, commitado e publicado. Migração `0001`
+aplicada em produção.
 
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
@@ -156,12 +157,24 @@ Sumiram exatamente 10 classes: `.table`, `.filter`, `.shadow`, `.uppercase`,
 em README e documentação. Foi verificado no HTML gerado: **nenhuma era usada em
 lugar nenhum**. O build novo está mais correto, não mais pobre.
 
-### O que NÃO foi verificado
+### A metade que faltava, verificada em 2026-08-16
 
-**A metade do sistema de migrações que fala com o banco.** Não há Postgres, nem
-Docker, nem `.env` nesta máquina — só deu para testar a lógica de leitura dos
-arquivos (ordem, nomes, impressão digital), que tem teste automatizado. A parte
-que conecta e escreve precisa ser rodada contra o banco real. Veja a seção 8.
+A parte do sistema de migrações que fala com o banco foi rodada contra o
+Postgres de produção:
+
+| Prova | Resultado |
+|---|---|
+| `--status` antes | `0001_baseline.sql` **pendente** — o banco nunca teve controle de migração |
+| Schema inspecionado antes de aplicar | as 8 tabelas já existiam, **0 colunas faltando**, 11 índices presentes |
+| `db:migrate` | `✓ 0001_baseline.sql 892ms` |
+| `db:migrate` de novo | `nada pendente` — a proteção contra reaplicar funciona |
+| Contagem de linhas antes e depois | **idêntica**: 2 usuários, 428 contas, 151 gastos, 3 cartões, 3 faturas |
+
+**A dúvida de julho está respondida:** `cards` e `card_invoices` existem em
+produção, com `reserve_cents` e tudo mais. Alguém rodou o schema na época. A
+baseline, sendo idempotente, não recriou nada — só registrou a linha em
+`schema_migrations`. Da `0002` em diante o processo passa a ser automático de
+verdade.
 
 ---
 
@@ -221,33 +234,33 @@ serve mais ali. **Decisão certa, motivo diferente.**
 
 ## 8. Pendências — o que fazer a seguir
 
-### 8.1. Rodar a migração em produção ⚠️ prioridade
+### 8.1. ~~Rodar a migração em produção~~ ✅ feito em 2026-08-16
 
-É o que finalmente resolve a pendência dos cartões, aberta desde julho.
+Aplicada. As provas estão na seção 5. Daqui em diante, **depois de todo deploy
+que mexa no schema**, rode da sua máquina com o `.env` preenchido:
 
-1. Preencher a `DATABASE_URL` no arquivo `.env` da raiz (já criado, com
-   instruções dentro). O valor está no EasyPanel → serviço de Postgres →
-   credenciais. **Use a URL externa** (com número de IP depois do `@`), não a
-   interna (com nome).
-2. Rodar, nesta ordem:
-   ```
-   npm run db:migrate -- --status   # deve mostrar 0001 como "pendente"
-   npm run db:migrate               # aplica
-   npm run db:migrate               # deve dizer "nada pendente"
-   ```
+```
+npm run db:migrate -- --status   # o que está aplicado, o que falta
+npm run db:migrate               # aplica o que falta
+```
 
-Se o EasyPanel não mostrar URL externa, **não abra a porta do banco para a
-internet**. Existe um caminho melhor: rodar o comando pelo terminal do próprio
-servidor, por dentro do EasyPanel.
+> **A `DATABASE_URL` foi colada num chat em 2026-08-16.** Ela contém a senha do
+> banco de produção. Trocar essa senha no EasyPanel é a pendência 8.4.
+> O lugar dela é o `.env`, que o git ignora — nunca um chat, um ticket ou um
+> print.
 
-> **Nunca cole a `DATABASE_URL` num chat.** Ela contém a senha do banco de
-> produção. Ela vai direto no arquivo `.env`, que o git ignora.
+### 8.2. ~~Publicar este checkpoint~~ ✅ feito em 2026-08-16
 
-### 8.2. Publicar este checkpoint
+Commit `ed92196` (monorepo + migrações) e o commit de documentação, publicados
+no `main`. O deploy do EasyPanel dispara sozinho a cada push.
 
-Nada foi commitado nem publicado. O deploy vai subir o site exatamente igual ao
-que já está no ar — o build provou isso. Vale ter um ponto de retorno seguro no
-GitHub antes da próxima etapa, que é grande.
+**Como o EasyPanel constrói** (conferido, não está em arquivo nenhum do repo):
+fonte GitHub `JeanZorzetti/meridian`, branch `main`, Build Path `/`, builder
+**Nixpacks**, com Install/Build/Start **todos vazios** — ou seja, o Nixpacks lê
+o `package.json` da raiz e usa `npm ci`, `npm run build` e `npm start`. Os dois
+últimos repassam para `apps/site` via `-w`, então a mudança de `dist/` para
+`apps/site/dist/` não quebrou nada. **Se algum dia alguém escrever um caminho à
+mão nesses campos, o monorepo quebra o deploy.**
 
 ### 8.3. Próxima etapa (o resto da Fase 1)
 
@@ -255,6 +268,19 @@ Criar o `apps/app` em Next.js, mover `/login`, `/admin` e as 15 rotas de API par
 lá, e quebrar o `BudgetApp.tsx` em telas separadas (`/app/orcamento`,
 `/app/cartoes`, `/app/metas`). Depois disso o Astro fica só com o institucional
 e o blog.
+
+### 8.4. Trocar a senha do Postgres ⚠️
+
+A senha de produção passou por um chat em 2026-08-16. Trocar no EasyPanel →
+serviço de Postgres → credenciais, e depois atualizar a `DATABASE_URL` do `.env`
+local. Nada no código guarda essa senha, então não há outro lugar para mexer.
+
+### 8.5. Migração automática no deploy
+
+Hoje o `db:migrate` é rodado por uma pessoa, da máquina dela, contra a porta
+externa do banco. Isso funciona e é reversível, mas depende de alguém lembrar —
+que é exatamente a falha que originou este sistema. O passo natural é um comando
+de release que rode `db:migrate` dentro do container antes de o servidor subir.
 
 ---
 
@@ -272,7 +298,7 @@ A pesquisa que originou tudo: [`docs/Pesquisa Estratégica Projeto Merdian.md`](
 
 | Rodada | Entrega | Estado |
 |---|---|---|
-| 1 | Migrações versionadas | ✅ feito |
+| 1 | Migrações versionadas | ✅ feito, e aplicado em produção |
 | 2 | Monorepo + app Next | 🔨 metade (monorepo feito, Next falta) |
 | 3 | Contas, e-mail, 2FA, Google, LGPD | ⏳ |
 | 4 | Capacidade e observabilidade | ⏳ |
