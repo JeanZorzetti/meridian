@@ -1,8 +1,9 @@
 # Meridian — Handoff
 
 **Última atualização:** 2026-08-16
-**Estado:** no ar e verificado em produção. `main` em `4b9d0a2`. Migração `0001`
-aplicada no banco de produção.
+**Estado:** no ar e verificado em produção. Migração `0001` aplicada no banco de
+produção, e a partir de agora o próprio deploy migra antes de o servidor subir.
+Confirmado que o container fala com o banco.
 
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
@@ -21,15 +22,25 @@ Duas mudanças estruturais, ambas verificadas:
 Nenhuma funcionalidade mudou. O site renderiza **exatamente** o mesmo HTML de
 antes — isso foi comparado byte a byte.
 
-**Em 2026-08-16 isso foi commitado, publicado e aplicado:**
+**A linha do tempo de 2026-08-16, em commits:**
 
 | Commit | O que é |
 |---|---|
 | `ed92196` | monorepo + sistema de migrações (89 arquivos) |
-| `4b9d0a2` | esta documentação |
+| `4b9d0a2` | documentação do checkpoint |
+| `66f0302` | registro do deploy verificado |
+| `83caaf1` | ferramental do spec-kit versionado (pendência 8.7) |
+| `9866ca8` | migração automática no deploy (pendência 8.5) |
+| (o commit seguinte) | esta documentação |
 
 O push saiu às 13:31, o deploy do EasyPanel entrou no ar às 13:32:57 — cerca de
 um minuto e meio. As provas de produção estão na seção 5.
+
+**Uma lição do `66f0302`:** ele ficou commitado na máquina e nunca publicado, e
+só foi descoberto na sessão seguinte, ao comparar `main` com `origin/main`. A
+documentação do deploy existia num computador só — se ele sumisse, sumia junto.
+Commit não é publicação; só o `push` é. Vale conferir com
+`git status -sb`, que mostra `[ahead 1]` quando há commit parado.
 
 ---
 
@@ -47,8 +58,9 @@ dentro, enquanto o site continua respondendo 200 normalmente. É uma falha
 invisível de fora.
 
 Isso já aconteceu: o commit `2938b8f` (cartões de crédito, julho) criou as
-tabelas `cards` e `card_invoices`, e até hoje ninguém confirmou se alguém rodou
-o comando no banco de produção.
+tabelas `cards` e `card_invoices`, e por meses ninguém soube dizer se alguém
+tinha rodado o comando no banco de produção. (Tinha rodado — só se descobriu em
+2026-08-16, inspecionando o banco. A questão é ter passado meses sem saber.)
 
 ### A solução
 
@@ -61,6 +73,10 @@ npm run db:migrate -- --status   # só olha: o que está aplicado e o que falta
 npm run db:migrate               # aplica o que falta (seguro repetir)
 npm run db:seed                  # cria/redefine o usuário admin do .env
 ```
+
+**No deploy isso roda sozinho.** O container executa `db:migrate` antes de o
+servidor subir (8.5), então escrever uma migração nova e dar `git push` basta —
+ninguém precisa lembrar de mais nada.
 
 ### Três proteções embutidas
 
@@ -143,6 +159,7 @@ Todos rodam da **raiz** do projeto.
 | `npm run dev` | servidor de desenvolvimento |
 | `npm run build` | build de produção |
 | `npm test` | todos os testes (matemática + migrações) |
+| `npm start` | **migra e depois sobe o servidor** — é o que o container roda |
 | `npm run db:migrate` | aplica migrações pendentes |
 | `npm run db:migrate -- --status` | só inspeciona, não muda nada |
 | `npm run db:seed` | cria/redefine o usuário admin |
@@ -179,11 +196,32 @@ gera `uid`s aleatórios a cada build, então o HTML muda quando uma versão nova
 entra no ar. É um jeito barato de saber que o deploy terminou de verdade, sem
 acesso à API do EasyPanel.
 
-**O que ainda NÃO foi provado:** que o app conversa com o banco em produção. O
-401 é devolvido antes de qualquer consulta, então ele não testa a conexão. Nada
-dessa configuração foi tocado — a `DATABASE_URL` do container é variável do
-EasyPanel e continua a mesma — mas a confirmação de verdade é entrar em `/admin`
-e ver os 428 lançamentos na tela.
+### O container fala com o banco — provado sem usar senha
+
+Isto estava em aberto como pendência 8.6: os 401 são devolvidos **antes** de
+qualquer consulta, então não provam nada sobre a conexão com o banco. A dúvida
+era se a `DATABASE_URL` do container ainda funcionava.
+
+O truque que responde isso sem precisar da senha de ninguém: um `POST` em
+`/api/login` com um usuário que não existe. A primeira linha de `authenticate()`
+é `select ... from users where username = ...` — sem cache, sem atalho. Então:
+
+| Resposta | Significa |
+|---|---|
+| `302 → /login?error=1` | consultou o banco, não achou o usuário |
+| `500` | não conseguiu falar com o banco |
+
+Produção devolveu **`302 → /login?error=1`**. A conexão funciona.
+
+Dois detalhes de quem for repetir isso: o POST precisa do cabeçalho
+`Origin: https://meridian.roilabs.com.br`, senão o Astro barra como CSRF e
+devolve **403 antes de chegar no código de login** — um 403 aqui não diz nada
+sobre o banco. E o login trava o IP após 5 falhas em 15 minutos, então faça
+**uma** tentativa, não um laço.
+
+**O que ainda assim não foi provado:** que a tela do `/admin` mostra os 428
+lançamentos. São consultas diferentes das do login. O risco que importava (o
+container sem banco) está descartado; o que falta é conferência visual.
 
 ### Sobre o CSS 1.258 bytes menor
 
@@ -226,6 +264,21 @@ verdade.
 - **Os pacotes exportam `.ts` cru.** O bundler de cada app precisa inliná-los —
   veja `ssr.noExternal` no `apps/site/astro.config.mjs`. Sem isso o build passa
   e o servidor morre no primeiro import.
+- **Migração quebrada agora derruba o site inteiro.** Desde a pendência 8.5, o
+  `npm start` roda `db:migrate` antes de o servidor escutar na porta. Se a
+  migração falhar, o container não sobe e o EasyPanel fica reiniciando em laço —
+  inclusive o site institucional, que nem usa banco. É de propósito: um servidor
+  falando com um schema que ele não espera responde 200 e quebra por dentro, que
+  é pior. **A saída de emergência é a variável `MIGRATE_SKIP=1`** nas variáveis
+  de ambiente do EasyPanel: o passo de migração é pulado, o site volta, e aí dá
+  para arrumar a migração com calma. **Tire a variável depois de arrumar** — com
+  ela ligada, o Meridian volta a ser exatamente o problema que o sistema de
+  migrações existe para evitar.
+- **Nos logs do container aparece `.env not found. Continuing without it.`**
+  É esperado e não é erro. No container não existe arquivo `.env` — as variáveis
+  vêm do EasyPanel — e é por isso que o comando usa `--env-file-if-exists` em
+  vez de `--env-file`, que abortaria. Se alguém "consertar" isso trocando de
+  volta para `--env-file`, o container para de subir.
 - **Os campos de build do EasyPanel têm que continuar vazios.** É o Nixpacks
   lendo o `package.json` da raiz que faz o monorepo funcionar sem Dockerfile.
   Escrever um caminho à mão ali (`node ./dist/server/entry.mjs`, por exemplo)
@@ -243,10 +296,9 @@ verdade.
   conclusões erradas sobre o estado do projeto. Use o caminho completo —
   `& "C:\Program Files\Git\cmd\git.exe" status` — ou o Git Bash, onde o problema
   não existe.
-- **`.claude/` e `.specify/` não estão no git.** São ferramental do spec-kit,
-  instalado por fora, e ficaram deliberadamente fora do commit do checkpoint por
-  não terem relação com ele. Continuam soltos na máquina; falta decidir se viram
-  commit ou entram no `.gitignore`.
+- **Ao mexer em `.specify/`**, lembre que `.specify/memory/constitution.md` é
+  conteúdo do projeto (hoje ainda o template intacto), não ferramental. Ele está
+  versionado de propósito — veja 8.7.
 
 ---
 
@@ -260,7 +312,7 @@ verdade.
 | **Painel de operação** | fica em `/app/admin` — consequência da escolha acima |
 | **Backend do agente de IA** | fica em Node, não em Python/FastAPI |
 | **Cadastro** | verificação por e-mail + 2FA + login pelo Google |
-| **Migração no deploy** | **manual por enquanto** — quem publica roda `db:migrate` depois (ver 8.5) |
+| **Migração no deploy** | **automática** — o `npm start` do container migra antes de servir (ver 8.5) |
 | **Build no EasyPanel** | Nixpacks com os campos vazios; sem Dockerfile no repo (ver 8.2) |
 
 ### Sobre Astro + Next.js — a correção que importa
@@ -291,21 +343,23 @@ serve mais ali. **Decisão certa, motivo diferente.**
 |---|---|---|
 | 8.1 | Rodar a migração em produção | ✅ 2026-08-16 |
 | 8.2 | Publicar o checkpoint | ✅ 2026-08-16 |
-| 8.3 | `apps/app` em Next.js (resto da Fase 1) | ⏳ próxima etapa grande |
-| 8.4 | Trocar a senha do Postgres | ⚠️ aberta |
-| 8.5 | Migração automática no deploy | ⏳ |
-| 8.6 | Entrar em `/admin` e confirmar os dados | ⚠️ aberta, 10 segundos |
-| 8.7 | Decidir o que fazer com `.claude/` e `.specify/` | ⏳ |
+| 8.3 | `apps/app` em Next.js (resto da Fase 1) | ⏳ **próxima etapa grande** |
+| 8.4 | Trocar a senha do Postgres | ⚠️ **aberta, e só você pode fazer** |
+| 8.5 | Migração automática no deploy | ✅ 2026-08-16 |
+| 8.6 | Confirmar que o app lê o banco em produção | ✅ 2026-08-16 |
+| 8.7 | Decidir o que fazer com `.claude/` e `.specify/` | ✅ 2026-08-16 |
 
 ### 8.1. ~~Rodar a migração em produção~~ ✅ feito em 2026-08-16
 
-Aplicada. As provas estão na seção 5. Daqui em diante, **depois de todo deploy
-que mexa no schema**, rode da sua máquina com o `.env` preenchido:
+Aplicada. As provas estão na seção 5.
 
-```
-npm run db:migrate -- --status   # o que está aplicado, o que falta
-npm run db:migrate               # aplica o que falta
-```
+> Este trecho mandava rodar `db:migrate` à mão depois de todo deploy. **Não é
+> mais necessário** — o deploy passou a migrar sozinho (8.5). Para só *olhar* o
+> estado do banco, da sua máquina com o `.env` preenchido:
+>
+> ```
+> npm run db:migrate -- --status   # o que está aplicado, o que falta
+> ```
 
 > **A `DATABASE_URL` foi colada num chat em 2026-08-16.** Ela contém a senha do
 > banco de produção. Trocar essa senha no EasyPanel é a pendência 8.4.
@@ -326,6 +380,14 @@ o `package.json` da raiz e usa `npm ci`, `npm run build` e `npm start`. Os dois
 `apps/site/dist/` não quebrou nada. **Se algum dia alguém escrever um caminho à
 mão nesses campos, o monorepo quebra o deploy.**
 
+Depois do 8.5 esse campo Start vazio ficou mais importante ainda, e de um jeito
+mais traiçoeiro. O `npm start` da raiz é quem roda a migração antes de servir.
+Escrever `node ./apps/site/dist/server/entry.mjs` ali **não quebraria nada
+visível** — o site subiria normalmente, respondendo 200 — e simplesmente
+deixaria de migrar o banco, sem aviso. Seria a falha invisível de volta, agora
+escondida num campo de formulário que não está em arquivo nenhum do repositório.
+**O campo Start fica vazio.**
+
 ### 8.3. Próxima etapa (o resto da Fase 1)
 
 Criar o `apps/app` em Next.js, mover `/login`, `/admin` e as 15 rotas de API para
@@ -339,26 +401,41 @@ A senha de produção passou por um chat em 2026-08-16. Trocar no EasyPanel →
 serviço de Postgres → credenciais, e depois atualizar a `DATABASE_URL` do `.env`
 local. Nada no código guarda essa senha, então não há outro lugar para mexer.
 
-### 8.5. Migração automática no deploy
+### 8.5. ~~Migração automática no deploy~~ ✅ feito em 2026-08-16
 
-Hoje o `db:migrate` é rodado por uma pessoa, da máquina dela, contra a porta
-externa do banco. Isso funciona e é reversível, mas depende de alguém lembrar —
-que é exatamente a falha que originou este sistema. O passo natural é um comando
-de release que rode `db:migrate` dentro do container antes de o servidor subir.
+O `start` da raiz agora é `npm run db:migrate && npm run start -w @meridian/site`.
+Como o Nixpacks executa justamente esse `npm start` no container, ele virou o
+gancho de release que o EasyPanel não oferece: todo boot migra antes de servir.
+Com nada pendente custa uma ida ao banco e não muda nada, e a trava de advisory
+lock que já existia cobre dois containers subindo juntos.
 
-### 8.6. Confirmar que o app lê o banco em produção
+**Não é mais preciso rodar `db:migrate` à mão depois do push.** Continua útil
+rodar `npm run db:migrate -- --status` da sua máquina para *olhar* o estado.
 
-Entrar em `meridian.roilabs.com.br/admin` e ver se os lançamentos aparecem. É a
-única prova que falta do deploy de 2026-08-16: as verificações automáticas param
-no 401, que é devolvido antes de qualquer consulta ao banco. Se os dados
-aparecerem, o ciclo está fechado.
+Duas consequências, ambas de propósito, ambas na seção 6: migração quebrada
+derruba o boot (com `MIGRATE_SKIP=1` como saída de emergência), e o comando usa
+`--env-file-if-exists` porque no container não existe arquivo `.env`.
 
-### 8.7. `.claude/` e `.specify/`
+### 8.6. ~~Confirmar que o app lê o banco em produção~~ ✅ feito em 2026-08-16
 
-Ferramental do spec-kit, instalado por fora e sem relação com o checkpoint, por
-isso ficaram fora do commit. Estão soltos na máquina. Duas saídas: versionar num
-commit próprio, se a equipe for usar os mesmos comandos, ou pôr no `.gitignore`
-e tratar como configuração de máquina.
+Provado sem precisar de senha, com um `POST` em `/api/login` usando um usuário
+inexistente: produção respondeu `302 → /login?error=1`, ou seja, consultou o
+banco. O método e as duas pegadinhas (o `Origin` obrigatório e o bloqueio por
+IP) estão descritos na seção 5.
+
+Vale ainda entrar em `/admin` e bater os olhos nos 428 lançamentos — as
+consultas da tela são outras — mas isso é conferência, não mais risco aberto.
+
+### 8.7. ~~`.claude/` e `.specify/`~~ ✅ feito em 2026-08-16
+
+Versionados em `83caaf1`, 36 arquivos. É para isso que o `specify init` os gera
+dentro do repositório: quem clonar tem os mesmos comandos sem instalar nada.
+
+O que decidiu foi `.specify/memory/constitution.md`. Hoje ele é o arquivo de
+exemplo intacto — nenhuma linha do Meridian, e nenhuma spec foi escrita ainda —
+mas o dia em que a constituição do projeto for escrita, ela é conteúdo do
+projeto, não ferramental. Com a pasta ignorada, esse texto nasceria fora do git
+sem ninguém perceber: a mesma falha silenciosa que originou as migrações.
 
 ---
 
@@ -376,7 +453,7 @@ A pesquisa que originou tudo: [`docs/Pesquisa Estratégica Projeto Merdian.md`](
 
 | Rodada | Entrega | Estado |
 |---|---|---|
-| 1 | Migrações versionadas | ✅ feito, e aplicado em produção |
+| 1 | Migrações versionadas | ✅ feito, aplicado em produção e automático no deploy |
 | 2 | Monorepo + app Next | 🔨 metade (monorepo feito, Next falta) |
 | 3 | Contas, e-mail, 2FA, Google, LGPD | ⏳ |
 | 4 | Capacidade e observabilidade | ⏳ |
