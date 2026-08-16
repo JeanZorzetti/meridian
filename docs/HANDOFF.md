@@ -17,14 +17,55 @@ projeto é de julho e está desatualizado — ignore-o.
 
 ---
 
+## 0. Onde estamos, em português claro
+
+Hoje existe **um site no ar** (`meridian.roilabs.com.br`), e dentro dele mora
+também o seu painel de orçamento, em `/admin`. Tudo isso funciona e não foi
+mexido.
+
+O que fizemos foi **construir uma segunda versão do painel**, em outra tecnologia
+(Next.js), que vai morar em `meridian.roilabs.com.br/app`. Ela está pronta e
+guardada no repositório, mas **não está ligada** — hoje quem abrir `/app` recebe
+"página não encontrada". Isso é esperado, não é defeito: falta o último passo,
+que é criar o "serviço" dela no EasyPanel.
+
+Pense assim: o código é o motor, e o serviço no EasyPanel é a tomada. O motor
+está pronto e testado; ninguém plugou ainda.
+
+### O que falta, em ordem
+
+São três coisas independentes. **Nenhuma delas é urgente** — o site está no ar e
+estável. Você pode fazer uma hoje e outra semana que vem.
+
+| Ordem | O quê | Quanto dá trabalho | Por que fazer |
+|---|---|---|---|
+| 1ª | **Trocar a senha do banco** (8.4) | ~15 min, e o site pisca | A senha atual passou por um chat em 2026-08-16. É a única com risco de segurança de verdade. |
+| 2ª | **Ligar o app novo** (8.3, rodada B) | ~15 min, sem risco pro site | É o que faz todo o trabalho de hoje virar algo que você consegue abrir. |
+| 3ª | **Descobrir por que o deploy caiu** (8.5, Passo 0) | 2 comandos, só leitura | Fecha a única dúvida técnica em aberto. Dá para fazer junto com a 2ª, na mesma tela. |
+
+As três dependem de **você**, porque exigem entrar no EasyPanel — não há como
+fazer pelo código. Cada uma tem o passo a passo na seção correspondente lá
+embaixo, e todas podem ser feitas com alguém te guiando.
+
+### O que NÃO precisa fazer
+
+- Não precisa mexer no site que está no ar. Ele está bem.
+- Não precisa rodar migração de banco agora — nada mudou no schema hoje.
+- Não precisa entender Next.js para ligar o app. É preencher dois campos.
+
+---
+
 ## 1. O que foi feito
 
-Duas mudanças estruturais, ambas verificadas:
+Três mudanças estruturais, todas verificadas:
 
 1. **Sistema de migrações de banco de dados** — resolve a armadilha de o deploy
    nunca atualizar o banco.
 2. **Reorganização em monorepo** — separa a matemática do dinheiro do site, para
    que o app novo (Next.js) possa usar exatamente o mesmo código, sem cópia.
+3. **O app em Next.js (`apps/app`)** — construído, verificado e publicado no
+   repositório, mas **ainda não servindo ninguém**: falta criar o serviço dele no
+   EasyPanel. Detalhe na 8.3.
 
 Nenhuma funcionalidade mudou. O site renderiza **exatamente** o mesmo HTML de
 antes — isso foi comparado byte a byte.
@@ -41,6 +82,9 @@ antes — isso foi comparado byte a byte.
 | `71b9cc2` | documentação (escrita antes de o deploy falhar, corrigida depois) |
 | `de35e6f` | revert do `9866ca8`, site de volta no ar |
 | `c574746` | correção do HANDOFF, que descrevia um 8.5 que não existe mais |
+| `2f3124c` | o diagnóstico que faltava e como ler os logs do EasyPanel |
+| `73f577b` | **`apps/app` em Next.js** — login, painel e as 15 rotas de API (37 arquivos) |
+| `e50b036` | registro deste deploy e da pin frouxa do Node |
 
 O push do checkpoint saiu às 13:31 e o deploy do EasyPanel entrou no ar às
 13:32:57 — cerca de um minuto e meio. As provas de produção estão na seção 5.
@@ -49,6 +93,13 @@ Mais tarde, o `9866ca8` derrubou o site às 14:06; o revert `de35e6f` o trouxe d
 volta às 14:13:37, cerca de um minuto depois do push. Sete minutos fora do ar.
 Depois disso o site foi verificado rota por rota e ficou estável ao longo do
 deploy seguinte (8 medições seguidas em 200).
+
+Já no fim do dia, os dois commits do app entraram **sem nenhuma queda**: push do
+`73f577b` às 15:13:28 e deploy no ar às 15:14:51 (1m23s); push do `e50b036` e
+deploy às 15:18:07. O site respondeu 200 em todas as medições atravessando as
+duas trocas. O deploy foi detectado pelo cabeçalho `Etag` de `/`, que muda quando
+uma versão nova entra — mais barato que comparar o HTML inteiro, e sem depender
+da API do EasyPanel.
 
 **Uma lição do `66f0302`:** ele ficou commitado na máquina e nunca publicado, e
 só foi descoberto na sessão seguinte, ao comparar `main` com `origin/main`. A
@@ -417,13 +468,18 @@ então por enquanto continua dependendo de alguém lembrar.
 documentação). O deploy do EasyPanel dispara sozinho a cada push, levou cerca de
 um minuto e meio, e o site foi verificado de pé depois — provas na seção 5.
 
-**Como o EasyPanel constrói** (conferido, não está em arquivo nenhum do repo):
-fonte GitHub `JeanZorzetti/meridian`, branch `main`, Build Path `/`, builder
-**Nixpacks**, com Install/Build/Start **todos vazios** — ou seja, o Nixpacks lê
-o `package.json` da raiz e usa `npm ci`, `npm run build` e `npm start`. Os dois
-últimos repassam para `apps/site` via `-w`, então a mudança de `dist/` para
-`apps/site/dist/` não quebrou nada. **Se algum dia alguém escrever um caminho à
-mão nesses campos, o monorepo quebra o deploy.**
+**Como o EasyPanel constrói o serviço do site** (conferido, não está em arquivo
+nenhum do repo): fonte GitHub `JeanZorzetti/meridian`, branch `main`, Build Path
+`/`, builder **Nixpacks**, com Install/Build/Start **todos vazios** — ou seja, o
+Nixpacks lê o `package.json` da raiz e usa `npm ci`, `npm run build` e
+`npm start`. Os dois últimos repassam para `apps/site` via `-w`, então a mudança
+de `dist/` para `apps/site/dist/` não quebrou nada. **Se algum dia alguém
+escrever um caminho à mão nesses campos, o monorepo quebra o deploy.**
+
+Isto vale para o **serviço do site**. O serviço do app, quando existir, é o
+contrário: ele *precisa* de Build e Start preenchidos (`npm run build:app` e
+`npm run start:app`), porque os nomes sem sufixo já são do site. Ver a rodada B
+na 8.3.
 
 Guarde isto para quando o 8.5 for refeito: no dia em que o `npm start` da raiz
 voltar a migrar antes de servir, esse campo Start vazio fica importante de um
@@ -507,22 +563,52 @@ a página nova faz; falta bater os olhos na tela, e isso é a rodada B.
 > também está vazio, o que desliga o último degrau da cascata de categorias
 > **localmente** — em produção quem fornece essa variável é o EasyPanel.
 
-**Rodada B — o que falta, e é você quem faz.** Criar um segundo serviço no
-EasyPanel, mesma fonte GitHub e mesma branch, com o domínio
-`meridian.roilabs.com.br` **e o caminho `/app`**. Diferente do serviço do site,
-este precisa de dois campos preenchidos:
+#### Rodada B — ligar o app. É você quem faz, e é só preencher formulário.
 
-| Campo | Serviço do site | Serviço do app |
-|---|---|---|
-| Install | *(vazio)* | *(vazio)* |
-| Build | *(vazio)* | `npm run build:app` |
-| Start | *(vazio)* | `npm run start:app` |
+Você vai **criar um serviço novo** no EasyPanel, ao lado do que já existe. O
+serviço do site **não é tocado em nenhum momento** — se algo der errado aqui, o
+site continua no ar do mesmo jeito. Esse é o motivo de ter sido feito nesta
+ordem.
 
-Os campos do site continuam vazios — é isso que faz o Nixpacks ler o
-`package.json` da raiz (seção 8.2), e por isso o `build` e o `start` da raiz não
-foram tocados: eles são do site. O app ganhou `build:app` e `start:app` ao lado.
-O serviço novo precisa da `DATABASE_URL` nas variáveis de ambiente, e do
-`ANTHROPIC_API_KEY` se quiser a categorização por LLM.
+Passo a passo:
+
+1. **No EasyPanel, no mesmo projeto do site, crie um serviço novo do tipo App.**
+   Dê um nome que distinga dos outros, por exemplo `meridian-app`.
+2. **Fonte:** GitHub, repositório `JeanZorzetti/meridian`, branch `main`,
+   Build Path `/`. Igualzinho ao serviço do site.
+3. **Builder:** Nixpacks.
+4. **Preencha dois campos** (e só esses dois):
+
+   | Campo | Serviço do site | Serviço do app |
+   |---|---|---|
+   | Install | *(deixe vazio)* | *(deixe vazio)* |
+   | Build | *(deixe vazio)* | `npm run build:app` |
+   | Start | *(deixe vazio)* | `npm run start:app` |
+
+5. **Variáveis de ambiente:** copie a `DATABASE_URL` do serviço do site. Se
+   quiser a categorização automática por IA, adicione também o
+   `ANTHROPIC_API_KEY` — sem ele o app funciona igual, só categoriza pelas
+   regras.
+6. **Domínio:** adicione `meridian.roilabs.com.br` **com o caminho `/app`**. Esse
+   campo de caminho é o que separa os dois serviços no mesmo endereço.
+7. **Deploy.** Espere terminar e abra `meridian.roilabs.com.br/app`.
+
+**O que você deve ver:** a tela de login. Entre com o usuário `jean` e a sua
+senha. Depois do login, o painel de orçamento — **os mesmos números do `/admin`
+de hoje**. Vale abrir os dois lado a lado e comparar; é essa a conferência que
+falta, e ela fecha também a última linha da 8.6.
+
+**Se `/app` der 404 depois do deploy:** o campo de caminho do domínio não pegou.
+É o passo 6.
+**Se der 502:** o container não subiu — olhe os logs, lembrando das três
+pegadinhas da seção 6 (o painel mostra o container vivo, os horários são UTC, e
+`SIGTERM` no fim é normal).
+**Se der erro no login:** aí sim é assunto de código, e vale voltar aqui.
+
+**Por que os campos do site continuam vazios:** é isso que faz o Nixpacks ler o
+`package.json` da raiz (seção 8.2). Por isso o `build` e o `start` da raiz não
+foram tocados — eles são do site. O app ganhou `build:app` e `start:app` ao lado,
+justamente para não disputar os mesmos nomes.
 
 **Sobre a versão do Node, que foi o que derrubou o site na 8.5:** aqui o risco é
 baixo — o Next 16 pede `>=20.9.0` e o container roda alguma 22.x, então ele cabe
@@ -550,9 +636,34 @@ lugar novo, depois a reorganização.
 
 ### 8.4. Trocar a senha do Postgres ⚠️
 
-A senha de produção passou por um chat em 2026-08-16. Trocar no EasyPanel →
-serviço de Postgres → credenciais, e depois atualizar a `DATABASE_URL` do `.env`
-local. Nada no código guarda essa senha, então não há outro lugar para mexer.
+A senha do banco de produção passou por um chat em 2026-08-16. **É a única
+pendência com risco de segurança de verdade**, e por isso vem antes das outras.
+
+O que precisa acontecer: a senha muda no banco, e todo mundo que fala com o banco
+precisa saber a senha nova. Hoje isso é **três lugares**, e é importante fazer os
+três na mesma sessão — entre trocar a senha e atualizar os serviços, o site fica
+fora do ar.
+
+1. **EasyPanel → serviço de Postgres → credenciais.** Gere uma senha nova e
+   copie a `DATABASE_URL` completa que ele mostrar.
+2. **Serviço do site → variáveis de ambiente → `DATABASE_URL`.** Cole a nova e
+   faça o redeploy.
+3. **Serviço do app** (depois que a rodada B existir) → mesma coisa.
+4. **Seu `.env` local**, na pasta do projeto. Só para você conseguir rodar
+   `npm run db:migrate` da sua máquina. Esse arquivo o git ignora, e é o único
+   lugar certo para essa senha morar.
+
+**Nada no código guarda a senha** — nenhum arquivo do repositório precisa mudar,
+e não há commit a fazer aqui.
+
+Depois de trocar, confirme que o site voltou: `meridian.roilabs.com.br/admin`
+deve redirecionar para o login (302), e o login deve funcionar. Se der 500 em vez
+disso, alguma das cópias da `DATABASE_URL` ficou para trás.
+
+> Enquanto estiver mexendo em variáveis: o `ADMIN_USER`, o `ADMIN_PASSWORD` e o
+> `ANTHROPIC_API_KEY` do seu `.env` local estão **vazios** hoje. Não é urgente —
+> só significa que dessa máquina não dá para entrar no painel nem testar a
+> categorização por IA.
 
 ### 8.5. Migração automática no deploy ❌ tentada em 2026-08-16, derrubou o site
 
