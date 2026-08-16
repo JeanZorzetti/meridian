@@ -13,9 +13,9 @@
   "scripts": {
     "dev": "npm run dev -w @meridian/site",
     "build": "npm run build -w @meridian/site",
-    "start": "npm run db:migrate && npm run start -w @meridian/site",
+    "start": "npm run start -w @meridian/site",
     "preview": "npm run preview -w @meridian/site",
-    "db:migrate": "node --env-file-if-exists=.env packages/db/migrate.mjs",
+    "db:migrate": "node --env-file=.env packages/db/migrate.mjs",
     "db:seed": "node --env-file=.env packages/db/seed-admin.mjs",
     "db:init": "npm run db:migrate && npm run db:seed",
     "db:import-xlsx": "node --experimental-strip-types --env-file=.env packages/db/seed-xlsx.mjs",
