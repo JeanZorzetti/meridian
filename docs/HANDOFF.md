@@ -2,8 +2,9 @@
 
 **Última atualização:** 2026-08-16
 **Estado:** no ar e verificado em produção. Migração `0001` aplicada no banco de
-produção, e a partir de agora o próprio deploy migra antes de o servidor subir.
-Confirmado que o container fala com o banco.
+produção. Confirmado que o container fala com o banco. **A migração automática no
+deploy foi tentada, derrubou o site por 7 minutos e foi revertida** — leia 8.5
+antes de tentar de novo.
 
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
@@ -30,8 +31,9 @@ antes — isso foi comparado byte a byte.
 | `4b9d0a2` | documentação do checkpoint |
 | `66f0302` | registro do deploy verificado |
 | `83caaf1` | ferramental do spec-kit versionado (pendência 8.7) |
-| `9866ca8` | migração automática no deploy (pendência 8.5) |
-| (o commit seguinte) | esta documentação |
+| `9866ca8` | migração automática no deploy — **derrubou o site, revertido** |
+| `71b9cc2` | documentação (escrita antes de o deploy falhar, corrigida depois) |
+| `de35e6f` | revert do `9866ca8`, site de volta no ar |
 
 O push saiu às 13:31, o deploy do EasyPanel entrou no ar às 13:32:57 — cerca de
 um minuto e meio. As provas de produção estão na seção 5.
@@ -74,9 +76,9 @@ npm run db:migrate               # aplica o que falta (seguro repetir)
 npm run db:seed                  # cria/redefine o usuário admin do .env
 ```
 
-**No deploy isso roda sozinho.** O container executa `db:migrate` antes de o
-servidor subir (8.5), então escrever uma migração nova e dar `git push` basta —
-ninguém precisa lembrar de mais nada.
+**No deploy isso NÃO roda sozinho** — ainda é preciso rodar `db:migrate` da sua
+máquina depois de um push que mexa no schema. Automatizar isso é a pendência
+8.5, que já foi tentada uma vez e derrubou o site.
 
 ### Três proteções embutidas
 
@@ -159,7 +161,7 @@ Todos rodam da **raiz** do projeto.
 | `npm run dev` | servidor de desenvolvimento |
 | `npm run build` | build de produção |
 | `npm test` | todos os testes (matemática + migrações) |
-| `npm start` | **migra e depois sobe o servidor** — é o que o container roda |
+| `npm start` | sobe o servidor de produção — é o que o container roda |
 | `npm run db:migrate` | aplica migrações pendentes |
 | `npm run db:migrate -- --status` | só inspeciona, não muda nada |
 | `npm run db:seed` | cria/redefine o usuário admin |
@@ -247,8 +249,9 @@ Postgres de produção:
 **A dúvida de julho está respondida:** `cards` e `card_invoices` existem em
 produção, com `reserve_cents` e tudo mais. Alguém rodou o schema na época. A
 baseline, sendo idempotente, não recriou nada — só registrou a linha em
-`schema_migrations`. Da `0002` em diante o processo passa a ser automático de
-verdade.
+`schema_migrations`. Da `0002` em diante o `db:migrate` aplica o que falta sem
+ninguém escrever SQL à mão — mas alguém ainda precisa **rodar o comando** depois
+do deploy. Tirar essa última pessoa do caminho é a pendência 8.5.
 
 ---
 
@@ -264,21 +267,18 @@ verdade.
 - **Os pacotes exportam `.ts` cru.** O bundler de cada app precisa inliná-los —
   veja `ssr.noExternal` no `apps/site/astro.config.mjs`. Sem isso o build passa
   e o servidor morre no primeiro import.
-- **Migração quebrada agora derruba o site inteiro.** Desde a pendência 8.5, o
-  `npm start` roda `db:migrate` antes de o servidor escutar na porta. Se a
-  migração falhar, o container não sobe e o EasyPanel fica reiniciando em laço —
-  inclusive o site institucional, que nem usa banco. É de propósito: um servidor
-  falando com um schema que ele não espera responde 200 e quebra por dentro, que
-  é pior. **A saída de emergência é a variável `MIGRATE_SKIP=1`** nas variáveis
-  de ambiente do EasyPanel: o passo de migração é pulado, o site volta, e aí dá
-  para arrumar a migração com calma. **Tire a variável depois de arrumar** — com
-  ela ligada, o Meridian volta a ser exatamente o problema que o sistema de
-  migrações existe para evitar.
-- **Nos logs do container aparece `.env not found. Continuing without it.`**
-  É esperado e não é erro. No container não existe arquivo `.env` — as variáveis
-  vêm do EasyPanel — e é por isso que o comando usa `--env-file-if-exists` em
-  vez de `--env-file`, que abortaria. Se alguém "consertar" isso trocando de
-  volta para `--env-file`, o container para de subir.
+- **O container roda uma versão do Node diferente da sua máquina, e o `.nvmrc`
+  não diz qual.** Ele contém só `22`, então o Nixpacks escolhe alguma 22.x — e
+  a máquina de desenvolvimento hoje roda Node 24. Foi essa diferença que
+  derrubou o site em 2026-08-16 (ver 8.5). **Testar um comando de deploy
+  localmente não prova que ele roda no container.** Qualquer coisa que dependa
+  de recurso recente do Node precisa ou de uma versão fixa no `.nvmrc`, ou de
+  não depender do recurso.
+- **Cuidado com "válvula de escape" que mora dentro do processo que quebra.**
+  A tentativa do 8.5 tinha uma variável `MIGRATE_SKIP=1` documentada como saída
+  de emergência — mas ela era lida por uma linha de JavaScript, e na falha real
+  o Node morria antes de executar qualquer linha. Uma proteção só vale se
+  sobreviver ao modo de falha de que ela deveria proteger.
 - **Os campos de build do EasyPanel têm que continuar vazios.** É o Nixpacks
   lendo o `package.json` da raiz que faz o monorepo funcionar sem Dockerfile.
   Escrever um caminho à mão ali (`node ./dist/server/entry.mjs`, por exemplo)
@@ -312,7 +312,7 @@ verdade.
 | **Painel de operação** | fica em `/app/admin` — consequência da escolha acima |
 | **Backend do agente de IA** | fica em Node, não em Python/FastAPI |
 | **Cadastro** | verificação por e-mail + 2FA + login pelo Google |
-| **Migração no deploy** | **automática** — o `npm start` do container migra antes de servir (ver 8.5) |
+| **Migração no deploy** | **manual** — quem publica roda `db:migrate` depois. Automatizar foi tentado e revertido (ver 8.5) |
 | **Build no EasyPanel** | Nixpacks com os campos vazios; sem Dockerfile no repo (ver 8.2) |
 
 ### Sobre Astro + Next.js — a correção que importa
@@ -345,7 +345,7 @@ serve mais ali. **Decisão certa, motivo diferente.**
 | 8.2 | Publicar o checkpoint | ✅ 2026-08-16 |
 | 8.3 | `apps/app` em Next.js (resto da Fase 1) | ⏳ **próxima etapa grande** |
 | 8.4 | Trocar a senha do Postgres | ⚠️ **aberta, e só você pode fazer** |
-| 8.5 | Migração automática no deploy | ✅ 2026-08-16 |
+| 8.5 | Migração automática no deploy | ❌ **tentada e revertida** — leia antes de repetir |
 | 8.6 | Confirmar que o app lê o banco em produção | ✅ 2026-08-16 |
 | 8.7 | Decidir o que fazer com `.claude/` e `.specify/` | ✅ 2026-08-16 |
 
@@ -353,13 +353,16 @@ serve mais ali. **Decisão certa, motivo diferente.**
 
 Aplicada. As provas estão na seção 5.
 
-> Este trecho mandava rodar `db:migrate` à mão depois de todo deploy. **Não é
-> mais necessário** — o deploy passou a migrar sozinho (8.5). Para só *olhar* o
-> estado do banco, da sua máquina com o `.env` preenchido:
->
-> ```
-> npm run db:migrate -- --status   # o que está aplicado, o que falta
-> ```
+Daqui em diante, **depois de todo deploy que mexa no schema**, rode da sua
+máquina com o `.env` preenchido:
+
+```
+npm run db:migrate -- --status   # o que está aplicado, o que falta
+npm run db:migrate               # aplica o que falta
+```
+
+Automatizar esse passo é a pendência 8.5 — tentada em 2026-08-16 e revertida,
+então por enquanto continua dependendo de alguém lembrar.
 
 > **A `DATABASE_URL` foi colada num chat em 2026-08-16.** Ela contém a senha do
 > banco de produção. Trocar essa senha no EasyPanel é a pendência 8.4.
@@ -380,13 +383,12 @@ o `package.json` da raiz e usa `npm ci`, `npm run build` e `npm start`. Os dois
 `apps/site/dist/` não quebrou nada. **Se algum dia alguém escrever um caminho à
 mão nesses campos, o monorepo quebra o deploy.**
 
-Depois do 8.5 esse campo Start vazio ficou mais importante ainda, e de um jeito
-mais traiçoeiro. O `npm start` da raiz é quem roda a migração antes de servir.
-Escrever `node ./apps/site/dist/server/entry.mjs` ali **não quebraria nada
-visível** — o site subiria normalmente, respondendo 200 — e simplesmente
-deixaria de migrar o banco, sem aviso. Seria a falha invisível de volta, agora
-escondida num campo de formulário que não está em arquivo nenhum do repositório.
-**O campo Start fica vazio.**
+Guarde isto para quando o 8.5 for refeito: no dia em que o `npm start` da raiz
+voltar a migrar antes de servir, esse campo Start vazio fica importante de um
+jeito mais traiçoeiro. Escrever `node ./apps/site/dist/server/entry.mjs` ali
+**não quebraria nada visível** — o site subiria respondendo 200 — e simplesmente
+deixaria de migrar o banco, sem aviso: a falha invisível de volta, escondida num
+campo de formulário que não existe em arquivo nenhum do repositório.
 
 ### 8.3. Próxima etapa (o resto da Fase 1)
 
@@ -401,20 +403,52 @@ A senha de produção passou por um chat em 2026-08-16. Trocar no EasyPanel →
 serviço de Postgres → credenciais, e depois atualizar a `DATABASE_URL` do `.env`
 local. Nada no código guarda essa senha, então não há outro lugar para mexer.
 
-### 8.5. ~~Migração automática no deploy~~ ✅ feito em 2026-08-16
+### 8.5. Migração automática no deploy ❌ tentada em 2026-08-16, derrubou o site
 
-O `start` da raiz agora é `npm run db:migrate && npm run start -w @meridian/site`.
-Como o Nixpacks executa justamente esse `npm start` no container, ele virou o
-gancho de release que o EasyPanel não oferece: todo boot migra antes de servir.
-Com nada pendente custa uma ida ao banco e não muda nada, e a trava de advisory
-lock que já existia cobre dois containers subindo juntos.
+**Leia isto inteiro antes de tentar de novo.** O commit `9866ca8` fez o `start`
+da raiz virar `npm run db:migrate && npm run start -w @meridian/site`. O
+raciocínio continua certo — é o `npm start` que o Nixpacks executa no container,
+então ele é o gancho de release que o EasyPanel não oferece. O que estava errado
+era o **como**.
 
-**Não é mais preciso rodar `db:migrate` à mão depois do push.** Continua útil
-rodar `npm run db:migrate -- --status` da sua máquina para *olhar* o estado.
+**O que aconteceu:** push às 14:06, o site caiu em 502 e ficou assim. Não era o
+deploy demorando: era o container em crash-loop, porque o passo de migração
+falhava e o `&&` impedia o servidor de subir. Revertido em `de35e6f`, site de
+volta às 14:13:37, cerca de um minuto depois do push do revert. **Sete minutos
+fora do ar**, site institucional junto.
 
-Duas consequências, ambas de propósito, ambas na seção 6: migração quebrada
-derruba o boot (com `MIGRATE_SKIP=1` como saída de emergência), e o comando usa
-`--env-file-if-exists` porque no container não existe arquivo `.env`.
+**A causa provável** (confirmar nos logs do EasyPanel antes de agir): junto com
+o encadeamento, o commit trocou `--env-file=.env` por `--env-file-if-exists=.env`,
+porque no container não existe arquivo `.env` e o Node aborta se o arquivo
+nomeado por `--env-file` não estiver lá. Só que **`--env-file-if-exists` só
+existe a partir do Node 22.9**, e o `.nvmrc` diz apenas `22` — o Nixpacks
+escolhe a 22.x que quiser. Numa versão anterior, o Node não reconhece a opção e
+morre antes de executar qualquer linha de código.
+
+O que **não** era a causa, já descartado: credencial, rede e SSL. O `db.ts` que
+o site usa conecta com a mesma configuração do `migrate.mjs` (`ssl: false`, mesma
+`DATABASE_URL`), e o site consultava o banco normalmente — ver a prova do login
+na seção 5.
+
+**Por que os testes locais não pegaram.** Os quatro cenários foram verificados na
+máquina de desenvolvimento e passaram, inclusive um chamado de "container
+simulado". Mas o que foi simulado era a *ausência do arquivo `.env`* — não o
+container. A máquina roda **Node 24**, o container roda outra versão. O teste
+tinha a forma da coisa certa e não tocava na variável que importava.
+
+**Como fazer direito, quando for a hora:**
+
+1. **Não use nenhuma flag `--env-file` no comando de deploy.** No container as
+   variáveis já vêm do ambiente do EasyPanel — não há arquivo para ler. Um
+   script separado (`"db:migrate:deploy": "node packages/db/migrate.mjs"`, sem
+   flag nenhuma) elimina de vez a dependência da versão do Node. O `db:migrate`
+   de sempre continua com `--env-file=.env` para uso local.
+2. **Descubra a versão do Node do container antes**, pelos logs do EasyPanel, e
+   considere fixá-la no `.nvmrc` (ex.: `22.12.0`) em vez de deixar `22`.
+3. **Publique num horário em que dê para acompanhar**, com o revert pronto: o
+   conserto real aqui foi `git revert` + push, e levou um minuto.
+4. Se quiser uma saída de emergência, ela **não pode viver dentro do processo
+   que quebra** — ver a armadilha na seção 6.
 
 ### 8.6. ~~Confirmar que o app lê o banco em produção~~ ✅ feito em 2026-08-16
 
@@ -453,7 +487,7 @@ A pesquisa que originou tudo: [`docs/Pesquisa Estratégica Projeto Merdian.md`](
 
 | Rodada | Entrega | Estado |
 |---|---|---|
-| 1 | Migrações versionadas | ✅ feito, aplicado em produção e automático no deploy |
+| 1 | Migrações versionadas | ✅ feito e aplicado em produção (rodar no deploy: 8.5, em aberto) |
 | 2 | Monorepo + app Next | 🔨 metade (monorepo feito, Next falta) |
 | 3 | Contas, e-mail, 2FA, Google, LGPD | ⏳ |
 | 4 | Capacidade e observabilidade | ⏳ |
