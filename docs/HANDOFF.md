@@ -1,15 +1,15 @@
 # Meridian — Handoff
 
 **Última atualização:** 2026-08-16
-**Estado:** funcionando, verificado, commitado e publicado. Migração `0001`
-aplicada em produção.
+**Estado:** no ar e verificado em produção. `main` em `4b9d0a2`. Migração `0001`
+aplicada no banco de produção.
 
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
 
 ---
 
-## 1. O que foi feito nesta sessão
+## 1. O que foi feito
 
 Duas mudanças estruturais, ambas verificadas:
 
@@ -20,6 +20,16 @@ Duas mudanças estruturais, ambas verificadas:
 
 Nenhuma funcionalidade mudou. O site renderiza **exatamente** o mesmo HTML de
 antes — isso foi comparado byte a byte.
+
+**Em 2026-08-16 isso foi commitado, publicado e aplicado:**
+
+| Commit | O que é |
+|---|---|
+| `ed92196` | monorepo + sistema de migrações (89 arquivos) |
+| `4b9d0a2` | esta documentação |
+
+O push saiu às 13:31, o deploy do EasyPanel entrou no ar às 13:32:57 — cerca de
+um minuto e meio. As provas de produção estão na seção 5.
 
 ---
 
@@ -145,9 +155,35 @@ Todos rodam da **raiz** do projeto.
 |---|---|
 | `npm test` | 5 suítes passam, arquivos de teste inalterados |
 | `npm run build` | passa, 3 páginas pré-renderizadas, 0 erros |
-| Servidor real de pé | `/`, `/pricing`, `/styleguide`, `/login` → 200; `/admin` → 302 para o login |
+| Servidor real de pé (local) | `/`, `/pricing`, `/styleguide`, `/login` → 200; `/admin` → 302 para o login |
 | HTML comparado byte a byte | **idêntico** ao de antes (só mudam os `uid` aleatórios do Astro) |
 | CSS comparado | 10 classes a menos — todas falso-positivo, nenhuma usada (veja abaixo) |
+| **Produção, depois do deploy** | ver logo abaixo |
+
+### Produção depois do deploy de 2026-08-16
+
+| Rota em `meridian.roilabs.com.br` | Resposta |
+|---|---|
+| `/`, `/pricing`, `/styleguide`, `/login` | 200 |
+| `/admin` | 302 → `/login` |
+| `/api/trends`, `/api/month/2026-08` | 401 |
+
+**Os 401 são a prova que importa.** Eles vêm do middleware e do código de sessão,
+que agora moram em `@meridian/db` — um pacote separado. Se o bundler não tivesse
+inlinado os pacotes no build de produção, o servidor teria morrido no primeiro
+import e a resposta seria 502, não 401. Era esse o risco real da reorganização, e
+ele não se concretizou.
+
+O deploy foi detectado comparando o hash do HTML de `/` antes e depois: o Astro
+gera `uid`s aleatórios a cada build, então o HTML muda quando uma versão nova
+entra no ar. É um jeito barato de saber que o deploy terminou de verdade, sem
+acesso à API do EasyPanel.
+
+**O que ainda NÃO foi provado:** que o app conversa com o banco em produção. O
+401 é devolvido antes de qualquer consulta, então ele não testa a conexão. Nada
+dessa configuração foi tocado — a `DATABASE_URL` do container é variável do
+EasyPanel e continua a mesma — mas a confirmação de verdade é entrar em `/admin`
+e ver os 428 lançamentos na tela.
 
 ### Sobre o CSS 1.258 bytes menor
 
@@ -190,11 +226,27 @@ verdade.
 - **Os pacotes exportam `.ts` cru.** O bundler de cada app precisa inliná-los —
   veja `ssr.noExternal` no `apps/site/astro.config.mjs`. Sem isso o build passa
   e o servidor morre no primeiro import.
+- **Os campos de build do EasyPanel têm que continuar vazios.** É o Nixpacks
+  lendo o `package.json` da raiz que faz o monorepo funcionar sem Dockerfile.
+  Escrever um caminho à mão ali (`node ./dist/server/entry.mjs`, por exemplo)
+  quebra o deploy, porque o `dist/` saiu da raiz e foi para `apps/site/`.
+  Detalhe completo na seção 8.2.
 - `reserve_cents` (reserva do cartão) existe no banco e na API, mas não tem campo
   na tela. O formulário de cartão em `BudgetApp.tsx` só pede nome, fecha, vence e
   limite.
 - O `README.md` ainda é o texto padrão do Astro, e o `handoff.md` da raiz é de
   julho. Ambos desatualizados.
+- **`git` no PowerShell desta máquina não funciona direito.** Existe um arquivo
+  vazio em `C:\Windows\system32\git` que tem precedência sobre o git de verdade:
+  dentro de um pipeline dá erro (`CantActivateDocumentInPipeline`) e fora dele o
+  comando devolve **saída vazia**, o que parece "repositório sem nada" e leva a
+  conclusões erradas sobre o estado do projeto. Use o caminho completo —
+  `& "C:\Program Files\Git\cmd\git.exe" status` — ou o Git Bash, onde o problema
+  não existe.
+- **`.claude/` e `.specify/` não estão no git.** São ferramental do spec-kit,
+  instalado por fora, e ficaram deliberadamente fora do commit do checkpoint por
+  não terem relação com ele. Continuam soltos na máquina; falta decidir se viram
+  commit ou entram no `.gitignore`.
 
 ---
 
@@ -208,7 +260,8 @@ verdade.
 | **Painel de operação** | fica em `/app/admin` — consequência da escolha acima |
 | **Backend do agente de IA** | fica em Node, não em Python/FastAPI |
 | **Cadastro** | verificação por e-mail + 2FA + login pelo Google |
-| **Migração no deploy** | **manual por enquanto** — nada muda em produção agora |
+| **Migração no deploy** | **manual por enquanto** — quem publica roda `db:migrate` depois (ver 8.5) |
+| **Build no EasyPanel** | Nixpacks com os campos vazios; sem Dockerfile no repo (ver 8.2) |
 
 ### Sobre Astro + Next.js — a correção que importa
 
@@ -234,6 +287,16 @@ serve mais ali. **Decisão certa, motivo diferente.**
 
 ## 8. Pendências — o que fazer a seguir
 
+| # | O quê | Estado |
+|---|---|---|
+| 8.1 | Rodar a migração em produção | ✅ 2026-08-16 |
+| 8.2 | Publicar o checkpoint | ✅ 2026-08-16 |
+| 8.3 | `apps/app` em Next.js (resto da Fase 1) | ⏳ próxima etapa grande |
+| 8.4 | Trocar a senha do Postgres | ⚠️ aberta |
+| 8.5 | Migração automática no deploy | ⏳ |
+| 8.6 | Entrar em `/admin` e confirmar os dados | ⚠️ aberta, 10 segundos |
+| 8.7 | Decidir o que fazer com `.claude/` e `.specify/` | ⏳ |
+
 ### 8.1. ~~Rodar a migração em produção~~ ✅ feito em 2026-08-16
 
 Aplicada. As provas estão na seção 5. Daqui em diante, **depois de todo deploy
@@ -251,8 +314,9 @@ npm run db:migrate               # aplica o que falta
 
 ### 8.2. ~~Publicar este checkpoint~~ ✅ feito em 2026-08-16
 
-Commit `ed92196` (monorepo + migrações) e o commit de documentação, publicados
-no `main`. O deploy do EasyPanel dispara sozinho a cada push.
+`b20dcf4..4b9d0a2` no `main`: `ed92196` (monorepo + migrações) e `4b9d0a2` (esta
+documentação). O deploy do EasyPanel dispara sozinho a cada push, levou cerca de
+um minuto e meio, e o site foi verificado de pé depois — provas na seção 5.
 
 **Como o EasyPanel constrói** (conferido, não está em arquivo nenhum do repo):
 fonte GitHub `JeanZorzetti/meridian`, branch `main`, Build Path `/`, builder
@@ -281,6 +345,20 @@ Hoje o `db:migrate` é rodado por uma pessoa, da máquina dela, contra a porta
 externa do banco. Isso funciona e é reversível, mas depende de alguém lembrar —
 que é exatamente a falha que originou este sistema. O passo natural é um comando
 de release que rode `db:migrate` dentro do container antes de o servidor subir.
+
+### 8.6. Confirmar que o app lê o banco em produção
+
+Entrar em `meridian.roilabs.com.br/admin` e ver se os lançamentos aparecem. É a
+única prova que falta do deploy de 2026-08-16: as verificações automáticas param
+no 401, que é devolvido antes de qualquer consulta ao banco. Se os dados
+aparecerem, o ciclo está fechado.
+
+### 8.7. `.claude/` e `.specify/`
+
+Ferramental do spec-kit, instalado por fora e sem relação com o checkpoint, por
+isso ficaram fora do commit. Estão soltos na máquina. Duas saídas: versionar num
+commit próprio, se a equipe for usar os mesmos comandos, ou pôr no `.gitignore`
+e tratar como configuração de máquina.
 
 ---
 
