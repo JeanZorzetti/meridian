@@ -1,0 +1,18 @@
+{
+  "name": "@meridian/db",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "description": "Postgres client, queries, sessions and the versioned schema migrations.",
+  "exports": {
+    ".": "./src/db.ts",
+    "./auth": "./src/auth.ts"
+  },
+  "dependencies": {
+    "@meridian/core": "*",
+    "postgres": "^3.4.9"
+  },
+  "scripts": {
+    "test": "node migrate.test.mjs"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@meridian/core",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "description": "Money math. Pure functions, integer cents, zero I/O — the one place that decides what a number means.",
+  "exports": {
+    "./budget": "./src/budget.ts",
+    "./insights": "./src/insights.ts",
+    "./cards": "./src/cards.ts",
+    "./categorize": "./src/categorize.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types src/budget.test.ts && node --experimental-strip-types src/insights.test.ts && node --experimental-strip-types src/categorize.test.ts && node --experimental-strip-types src/cards.test.ts"
+  }
+}

@@ -1,3 +1,8 @@
+> ⚠️ **Desatualizado (julho/2026).** O documento atual é
+> [`docs/HANDOFF.md`](docs/HANDOFF.md). Este aqui descreve `/admin` como stub,
+> quando o app completo já existe, e o projeto ainda como pasta única, quando já
+> é um monorepo. Mantido só como registro do que era.
+
 # Meridian — handoff
 
 **What this is:** a beauty-first marketing site for a personal-finance product,
