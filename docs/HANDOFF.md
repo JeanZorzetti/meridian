@@ -1,10 +1,11 @@
 # Meridian — Handoff
 
 **Última atualização:** 2026-08-16
-**Estado:** no ar e verificado em produção. Migração `0001` aplicada no banco de
-produção. Confirmado que o container fala com o banco. **A migração automática no
-deploy foi tentada, derrubou o site por 7 minutos e foi revertida** — leia 8.5
-antes de tentar de novo.
+**Estado:** no ar, estável e verificado rota por rota. Migração `0001` aplicada
+no banco de produção, e confirmado que o container fala com o banco. **A migração
+automática no deploy foi tentada, derrubou o site por 7 minutos e foi
+revertida** — leia a 8.5 inteira antes de tentar de novo; ela tem um passo de
+diagnóstico que precisa vir primeiro.
 
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
@@ -34,9 +35,15 @@ antes — isso foi comparado byte a byte.
 | `9866ca8` | migração automática no deploy — **derrubou o site, revertido** |
 | `71b9cc2` | documentação (escrita antes de o deploy falhar, corrigida depois) |
 | `de35e6f` | revert do `9866ca8`, site de volta no ar |
+| `c574746` | correção do HANDOFF, que descrevia um 8.5 que não existe mais |
 
-O push saiu às 13:31, o deploy do EasyPanel entrou no ar às 13:32:57 — cerca de
-um minuto e meio. As provas de produção estão na seção 5.
+O push do checkpoint saiu às 13:31 e o deploy do EasyPanel entrou no ar às
+13:32:57 — cerca de um minuto e meio. As provas de produção estão na seção 5.
+
+Mais tarde, o `9866ca8` derrubou o site às 14:06; o revert `de35e6f` o trouxe de
+volta às 14:13:37, cerca de um minuto depois do push. Sete minutos fora do ar.
+Depois disso o site foi verificado rota por rota e ficou estável ao longo do
+deploy seguinte (8 medições seguidas em 200).
 
 **Uma lição do `66f0302`:** ele ficou commitado na máquina e nunca publicado, e
 só foi descoberto na sessão seguinte, ao comparar `main` com `origin/main`. A
@@ -274,6 +281,16 @@ do deploy. Tirar essa última pessoa do caminho é a pendência 8.5.
   localmente não prova que ele roda no container.** Qualquer coisa que dependa
   de recurso recente do Node precisa ou de uma versão fixa no `.nvmrc`, ou de
   não depender do recurso.
+- **Ler os logs do EasyPanel engana de três jeitos.** (1) O painel de Logs mostra
+  o container **que está vivo agora** — um container que morreu levou os logs
+  dele junto, então depois de um revert você está olhando justamente o que deu
+  certo. (2) Os horários ali são **UTC**, três horas à frente do relógio de
+  Brasília: `17:18:29` no log é `14:18:29` para você. (3) Um bloco
+  `npm error signal SIGTERM` / `npm error command failed` no fim **é
+  desligamento normal**, não defeito: é o EasyPanel encerrando o container
+  antigo quando o novo entra no lugar, e aparece em todo deploy bem-sucedido.
+  Para diagnosticar de verdade, use o **terminal do container** (ícone `>_`),
+  que responde no presente em vez de depender de log preservado.
 - **Cuidado com "válvula de escape" que mora dentro do processo que quebra.**
   A tentativa do 8.5 tinha uma variável `MIGRATE_SKIP=1` documentada como saída
   de emergência — mas ela era lida por uma linha de JavaScript, e na falha real
@@ -417,7 +434,7 @@ falhava e o `&&` impedia o servidor de subir. Revertido em `de35e6f`, site de
 volta às 14:13:37, cerca de um minuto depois do push do revert. **Sete minutos
 fora do ar**, site institucional junto.
 
-**A causa provável** (confirmar nos logs do EasyPanel antes de agir): junto com
+**A causa provável** (confirmar pelo Passo 0, mais abaixo): junto com
 o encadeamento, o commit trocou `--env-file=.env` por `--env-file-if-exists=.env`,
 porque no container não existe arquivo `.env` e o Node aborta se o arquivo
 nomeado por `--env-file` não estiver lá. Só que **`--env-file-if-exists` só
@@ -436,6 +453,21 @@ simulado". Mas o que foi simulado era a *ausência do arquivo `.env`* — não o
 container. A máquina roda **Node 24**, o container roda outra versão. O teste
 tinha a forma da coisa certa e não tocava na variável que importava.
 
+**Passo 0 — confirmar a causa antes de qualquer coisa.** A hipótese acima é
+forte, mas continua hipótese: os logs consultados depois da queda eram do
+container já revertido, não do que falhou. A confirmação não depende de caçar
+log antigo — o EasyPanel tem um **terminal dentro do container** (ícone `>_` na
+barra do serviço), e lá dois comandos respondem tudo, sem risco, só leitura:
+
+```
+node --version
+node --env-file-if-exists=.env packages/db/migrate.mjs --status
+```
+
+- `bad option: --env-file-if-exists` → hipótese confirmada, siga o plano abaixo.
+- Listar as migrações (`aplicada 0001_baseline.sql`) → **a hipótese está errada**,
+  a causa é outra, e o plano abaixo não conserta nada. Descubra antes de repetir.
+
 **Como fazer direito, quando for a hora:**
 
 1. **Não use nenhuma flag `--env-file` no comando de deploy.** No container as
@@ -443,8 +475,10 @@ tinha a forma da coisa certa e não tocava na variável que importava.
    script separado (`"db:migrate:deploy": "node packages/db/migrate.mjs"`, sem
    flag nenhuma) elimina de vez a dependência da versão do Node. O `db:migrate`
    de sempre continua com `--env-file=.env` para uso local.
-2. **Descubra a versão do Node do container antes**, pelos logs do EasyPanel, e
-   considere fixá-la no `.nvmrc` (ex.: `22.12.0`) em vez de deixar `22`.
+2. **Fixe a versão do Node no `.nvmrc`** (ex.: `22.12.0` em vez de só `22`),
+   usando o número que o `node --version` do Passo 0 revelar. Enquanto disser
+   apenas `22`, o container pode mudar de versão sozinho num deploy futuro, sem
+   nenhuma mudança no código.
 3. **Publique num horário em que dê para acompanhar**, com o revert pronto: o
    conserto real aqui foi `git revert` + push, e levou um minuto.
 4. Se quiser uma saída de emergência, ela **não pode viver dentro do processo
