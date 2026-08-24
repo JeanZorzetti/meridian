@@ -12,6 +12,12 @@ que está em produção continua sendo só o site em Astro, servindo `/admin` e
 `/login` como sempre. Subir o app é a **rodada B da 8.3**, e depende de você
 criar o serviço no EasyPanel.
 
+**A rodada B foi começada, esbarrou em dois obstáculos, e hoje resta um** — o
+EasyPanel não consegue ler o repositório pelo GitHub (contornável pela aba
+`Git`), e havia dúvida se o painel usado é o mesmo que roda o site (**resolvida:
+não importa**, porque o banco é alcançável de fora). Nenhum dos dois é problema
+de código, e nada em produção foi tocado. O estado detalhado está no fim da 8.3.
+
 Este é o documento de referência do estado atual. O `handoff.md` na raiz do
 projeto é de julho e está desatualizado — ignore-o.
 
@@ -39,8 +45,8 @@ estável. Você pode fazer uma hoje e outra semana que vem.
 
 | Ordem | O quê | Quanto dá trabalho | Por que fazer |
 |---|---|---|---|
-| 1ª | **Trocar a senha do banco** (8.4) | ~15 min, e o site pisca | A senha atual passou por um chat em 2026-08-16. É a única com risco de segurança de verdade. |
-| 2ª | **Ligar o app novo** (8.3, rodada B) | ~15 min, sem risco pro site | É o que faz todo o trabalho de hoje virar algo que você consegue abrir. |
+| 1ª | **Trocar a senha do banco** (8.4) | ~15 min, e o site pisca | A senha atual passou por um chat em 2026-08-16, **e o banco aceita conexão da internet aberta** (descoberto em 2026-08-16, ver obstáculo 2 na 8.3). É a única com risco de segurança de verdade. |
+| 2ª | **Ligar o app novo** (8.3, rodada B) | começada; 1 obstáculo caiu, o outro tem contorno | É o que faz todo o trabalho de hoje virar algo que você consegue abrir. |
 | 3ª | **Descobrir por que o deploy caiu** (8.5, Passo 0) | 2 comandos, só leitura | Fecha a única dúvida técnica em aberto. Dá para fazer junto com a 2ª, na mesma tela. |
 
 As três dependem de **você**, porque exigem entrar no EasyPanel — não há como
@@ -85,6 +91,7 @@ antes — isso foi comparado byte a byte.
 | `2f3124c` | o diagnóstico que faltava e como ler os logs do EasyPanel |
 | `73f577b` | **`apps/app` em Next.js** — login, painel e as 15 rotas de API (37 arquivos) |
 | `e50b036` | registro deste deploy e da pin frouxa do Node |
+| `49a6c20` | seção 0 em linguagem simples e passo a passo das pendências |
 
 O push do checkpoint saiu às 13:31 e o deploy do EasyPanel entrou no ar às
 13:32:57 — cerca de um minuto e meio. As provas de produção estão na seção 5.
@@ -407,6 +414,7 @@ do deploy. Tirar essa última pessoa do caminho é a pendência 8.5.
 | **Cadastro** | verificação por e-mail + 2FA + login pelo Google |
 | **Migração no deploy** | **manual** — quem publica roda `db:migrate` depois. Automatizar foi tentado e revertido (ver 8.5) |
 | **Build no EasyPanel** | Nixpacks com os campos vazios; sem Dockerfile no repo (ver 8.2) |
+| **Arquitetura** | **monolito modular** — os `packages/*` são os módulos. Dois serviços é topologia de deploy, não microserviço (ver abaixo) |
 
 ### Sobre Astro + Next.js — a correção que importa
 
@@ -428,6 +436,38 @@ verificação de e-mail e 2FA saem quase prontos com biblioteca, e o `/admin` j�
 uma peça React de 1.223 linhas — sintoma de que o modelo de "ilhas" do Astro não
 serve mais ali. **Decisão certa, motivo diferente.**
 
+### Dois serviços não são microserviços
+
+Levantado em 2026-08-16: se a ideia é um **monolito modular**, faz sentido ter
+dois serviços no EasyPanel?
+
+Faz — porque **o Meridian já é um monolito modular**. Os módulos são os
+`packages/*`: `core` (a matemática), `db` (banco e sessões), `ui` (tokens e
+primitivas). Não há banco separado por serviço, nem API entre os módulos, nem
+versionamento independente — nada do que define microserviço. Site e app
+importam o **mesmo** `@meridian/core` do **mesmo** repositório. A modularidade
+mora no código; o número de serviços é só **quantos processos** rodam.
+
+**Um serviço só é possível, de um jeito só:** matar o Astro e deixar o Next
+servir tudo. Um processo, uma porta. Portar `/`, `/pricing` e `/styleguide` para
+o Next, tirar o `basePath: "/app"`, apontar o `build`/`start` da raiz para o
+`@meridian/app` — e aí **os campos do EasyPanel continuam vazios** e o Nixpacks
+lê a raiz como sempre (8.2), sem serviço novo e sem campo de Path no domínio. O
+SEO e o blog que motivaram o Astro ficam cobertos pelo SSG do Next.
+
+**O que não dá:** rodar Astro e Next no mesmo container. São dois servidores
+HTTP e uma porta só — precisaria de proxy interno, Dockerfile e supervisor.
+Continuariam sendo dois processos, agora com um capaz de derrubar o outro, e sem
+o Nixpacks. Pior nos dois eixos.
+
+**Decisão:** seguir com a rodada B como está. O custo de unificar agora é perder
+a prova de que o HTML do site é byte a byte idêntico — o site institucional seria
+reconstruído, não portado mecanicamente — e adiar por dias ver o app funcionando,
+que já está pronto e verificado. A porta não fecha: com o `/app` conferido no ar,
+unificar vira uma **variante mais ambiciosa da rodada C** — portar as 3 páginas,
+tirar o `basePath`, apontar a raiz para o Next e **destruir o serviço do site**.
+Chega no mesmo lugar, com o app validado no caminho.
+
 ---
 
 ## 8. Pendências — o que fazer a seguir
@@ -436,11 +476,12 @@ serve mais ali. **Decisão certa, motivo diferente.**
 |---|---|---|
 | 8.1 | Rodar a migração em produção | ✅ 2026-08-16 |
 | 8.2 | Publicar o checkpoint | ✅ 2026-08-16 |
-| 8.3 | `apps/app` em Next.js (resto da Fase 1) | 🔨 **construído e verificado local; falta subir** |
-| 8.4 | Trocar a senha do Postgres | ⚠️ **aberta, e só você pode fazer** |
+| 8.3 | `apps/app` em Next.js (resto da Fase 1) | 🔨 **construído e verificado local; rodada B com o caminho livre** |
+| 8.4 | Trocar a senha do Postgres | ⚠️ **aberta, e só você pode fazer** — subiu de urgência em 2026-08-16 |
 | 8.5 | Migração automática no deploy | ❌ **tentada e revertida** — leia antes de repetir |
 | 8.6 | Confirmar que o app lê o banco em produção | ✅ 2026-08-16 |
 | 8.7 | Decidir o que fazer com `.claude/` e `.specify/` | ✅ 2026-08-16 |
+| 8.8 | Deploy automático do serviço do app (webhook) | 🕓 **adiado de propósito para o fim da fila** |
 
 ### 8.1. ~~Rodar a migração em produção~~ ✅ feito em 2026-08-16
 
@@ -497,7 +538,7 @@ servindo `/login` e `/admin` exatamente como antes.
 | Rodada | O quê | Estado |
 |---|---|---|
 | A | criar o `apps/app`, portar login, painel e as 15 rotas de API | ✅ 2026-08-16 |
-| B | subir o serviço novo no EasyPanel e conferir o `/app` no ar | ⏳ **precisa de você** |
+| B | subir o serviço novo no EasyPanel e conferir o `/app` no ar | 🔨 **começada; caminho livre, falta executar** |
 | C | tirar `/admin`, `/login` e `/api/*` do Astro, e redirecionar | ⏳ depois de B |
 
 **O que a rodada A fez:** Next 16.3.1 com App Router, React 19 e os mesmos tokens
@@ -574,8 +615,9 @@ Passo a passo:
 
 1. **No EasyPanel, no mesmo projeto do site, crie um serviço novo do tipo App.**
    Dê um nome que distinga dos outros, por exemplo `meridian-app`.
-2. **Fonte:** GitHub, repositório `JeanZorzetti/meridian`, branch `main`,
-   Build Path `/`. Igualzinho ao serviço do site.
+2. **Fonte:** aba **`Git`** (não `Github` — veja o obstáculo 1 no fim desta
+   seção), com Repository URL `https://github.com/JeanZorzetti/meridian.git`,
+   branch `main`, Build Path `/`.
 3. **Builder:** Nixpacks.
 4. **Preencha dois campos** (e só esses dois):
 
@@ -585,10 +627,13 @@ Passo a passo:
    | Build | *(deixe vazio)* | `npm run build:app` |
    | Start | *(deixe vazio)* | `npm run start:app` |
 
-5. **Variáveis de ambiente:** copie a `DATABASE_URL` do serviço do site. Se
-   quiser a categorização automática por IA, adicione também o
-   `ANTHROPIC_API_KEY` — sem ele o app funciona igual, só categoriza pelas
-   regras.
+5. **Variáveis de ambiente:** cole a `DATABASE_URL` **do seu `.env` local** — ela
+   aponta para um IP público (`2.24.207.200:5446`) e funciona de qualquer
+   projeto ou painel, o que dispensa conferir se este EasyPanel é o mesmo do
+   site (obstáculo 2, no fim desta seção). Se quiser a categorização automática
+   por IA, adicione também o `ANTHROPIC_API_KEY` — sem ele o app funciona igual,
+   só categoriza pelas regras.
+   Se ele pedir uma porta, é **3000**, o padrão do `next start`.
 6. **Domínio:** adicione `meridian.roilabs.com.br` **com o caminho `/app`**. Esse
    campo de caminho é o que separa os dois serviços no mesmo endereço.
 7. **Deploy.** Espere terminar e abra `meridian.roilabs.com.br/app`.
@@ -622,6 +667,86 @@ Vale notar que **um único comando no terminal do container resolve as duas
 coisas**: o `node --version` do Passo 0 da 8.5 é exatamente o número que falta
 para fixar o `.nvmrc` e alinhar com o `engines`.
 
+#### Estado da rodada B — começada em 2026-08-16, parada em dois obstáculos
+
+Nada em produção foi tocado. O serviço `meridian-app` foi criado e ficou no
+passo do Source; **nenhum dos dois obstáculos é problema de código.**
+
+Antes de começar, a produção foi reconferida e continua igual à seção 5:
+
+| Rota | Resposta |
+|---|---|
+| `/`, `/login` | 200 |
+| `/admin` | 302 → login |
+| `/api/trends` | 401 |
+| `/app` | **404** — esperado, o serviço ainda não existe |
+
+**Obstáculo 1 — o EasyPanel não lê o repositório pelo GitHub.** A aba `Github`
+devolve **`Error: Commits not found`** com os campos corretos. O que foi
+descartado: o caminho `JeanZorzetti/meridian` está certo (bate com o `origin`),
+a branch `main` existe, e o repositório é **público** (`api.github.com` responde
+200). A causa é que **o EasyPanel não está instalado como GitHub App nesta
+conta** — em `github.com/settings/installations` a lista é alfabética e ele
+não aparece entre `Cursor` e `Emergent.sh`. Sem o App, o token não enxerga o
+repositório, e "não enxerga" vira "sem commits".
+
+A saída é a aba **`Git`** em vez da `Github`, que dispensa autenticação porque
+o repo é público:
+
+| Campo | Valor |
+|---|---|
+| Repository URL | `https://github.com/JeanZorzetti/meridian.git` |
+| Branch | `main` |
+| Build Path | `/` |
+
+> **Consequência que vale lembrar daqui a três meses:** a aba `Git` não cria
+> webhook. O serviço do site **publica sozinho a cada `git push`**; o serviço do
+> app **não** — alguém precisa clicar em Deploy. Dois serviços do mesmo
+> repositório com comportamentos diferentes é exatamente o tipo de assimetria
+> que faz alguém jurar que publicou e não publicou. É a mesma família de erro da
+> lição do `66f0302` na seção 1: commit não é publicação.
+>
+> **Decidido em 2026-08-16: fica assim de propósito, e se conserta por último.**
+> Clicar em Deploy à mão é chato, não é risco — o pior caso é o app ficar numa
+> versão velha, e o site, que é quem o público vê, continua publicando sozinho.
+> Trocar isso agora custaria instalar o EasyPanel como GitHub App na conta
+> (obstáculo 1) no meio de um passo que já está funcionando. Virou a pendência
+> **8.8**, no fim da fila.
+
+**Obstáculo 2 — o painel pode não ser o mesmo do site. ✅ deixou de importar.**
+O serviço foi criado no projeto **`sirius-crm`**, e o EasyPanel ausente da conta
+do GitHub reforça a suspeita de que **este painel não é o que roda o site do
+Meridian**. Isso não atrapalha Source nem Build, e o medo era o passo 5: se a
+`DATABASE_URL` usasse um **hostname interno**, ela só resolveria dentro do mesmo
+projeto — o app subiria e quebraria no login, com o sintoma parecendo erro de
+credencial.
+
+**Isso não acontece, e foi verificado em 2026-08-16.** A `DATABASE_URL` do `.env`
+local não aponta para hostname nenhum: é **`2.24.207.200:5446`**, um IP público
+com porta exposta. Três provas, todas desta máquina, que está fora de qualquer
+projeto do EasyPanel:
+
+| Prova | Resultado |
+|---|---|
+| `Test-NetConnection 2.24.207.200 -Port 5446` | alcançável de fora |
+| `npm run db:migrate -- --status` | `aplicada 0001_baseline.sql (2026-08-16 16:28:59)` |
+| Migração 8.1, aplicada daqui em 2026-08-16 | já era prova disso, sem ninguém notar |
+
+Ou seja: **o banco é alcançável de qualquer lugar, e portanto de qualquer projeto
+ou painel do EasyPanel.** Não é preciso descobrir se o painel é o mesmo antes de
+seguir. No passo 5 da rodada B, use a `DATABASE_URL` do seu `.env` local em vez
+de caçar a do serviço do site — é a mesma string, e é a que já está provada.
+
+> Em compensação, isso é uma **descoberta de segurança**: o Postgres de produção
+> aceita conexão da internet aberta, protegido só pela senha — a mesma que passou
+> por um chat em 2026-08-16. Não muda o plano da 8.4, mas sobe a urgência dela:
+> não é mais "alguém com a senha poderia entrar se estivesse na rede certa", é
+> "alguém com a senha entra de onde estiver". Se um dia der para restringir a
+> porta 5446 por IP no EasyPanel, vale.
+
+**Detalhe de formulário:** o campo Repository da aba `Github` é **um só** e quer
+`owner/repo` junto. Digitar só o owner devolve `Expected format: owner/repo`.
+
 **Rodada C**, só depois de o `/app` estar conferido no ar: apagar `/admin`,
 `/login`, `/api/*` e o `middleware.ts` do Astro, deixar `/admin` respondendo 301
 para `/app`, e apontar o "Sign in" do `Nav.astro` e do `Pricing.astro` para lá.
@@ -638,6 +763,16 @@ lugar novo, depois a reorganização.
 
 A senha do banco de produção passou por um chat em 2026-08-16. **É a única
 pendência com risco de segurança de verdade**, e por isso vem antes das outras.
+
+**O que se descobriu depois, e que aperta o prazo:** o Postgres não está atrás de
+rede privada. A `DATABASE_URL` aponta para `2.24.207.200:5446`, um IP público, e
+esta máquina — que não está em projeto nenhum do EasyPanel — conecta direto (a
+verificação está no obstáculo 2 da 8.3). A senha não é *uma* das camadas de
+proteção; é **a única**. Enquanto ela for a que vazou no chat, qualquer pessoa
+com aquele texto abre o banco de onde estiver.
+
+Se o EasyPanel oferecer restringir a porta 5446 por IP de origem, vale fazer
+junto. Não substitui a troca de senha — soma.
 
 O que precisa acontecer: a senha muda no banco, e todo mundo que fala com o banco
 precisa saber a senha nova. Hoje isso é **três lugares**, e é importante fazer os
@@ -664,6 +799,29 @@ disso, alguma das cópias da `DATABASE_URL` ficou para trás.
 > `ANTHROPIC_API_KEY` do seu `.env` local estão **vazios** hoje. Não é urgente —
 > só significa que dessa máquina não dá para entrar no painel nem testar a
 > categorização por IA.
+
+### 8.8. Deploy automático do serviço do app 🕓 adiado de propósito
+
+O serviço do app foi criado pela aba **`Git`**, que não instala webhook: ele
+**não** publica sozinho no `git push`, ao contrário do serviço do site. Quem
+publicar uma mudança que afete o app precisa **clicar em Deploy no painel**.
+
+Isso foi aceito conscientemente em 2026-08-16, e não é dívida urgente:
+
+- O pior caso é o app ficar numa versão velha. O site institucional, que é o que
+  o público vê, continua com deploy automático.
+- Consertar exige instalar o EasyPanel como **GitHub App** na conta do GitHub
+  (é o obstáculo 1 da rodada B), e depois trocar o Source do serviço da aba
+  `Git` para a aba `Github` — o que refaz o passo de Source que já está de pé.
+
+**Quando for a hora:** instale o App em `github.com/settings/installations`, dê
+acesso ao repositório `JeanZorzetti/meridian`, e então troque o Source. Se a aba
+`Github` voltar a dizer `Error: Commits not found` depois disso, o App não pegou
+o repositório — confira a lista de repositórios liberados na instalação.
+
+**Enquanto não for feito, a regra prática é:** todo `git push` que mexa em
+`apps/app`, `packages/*` ou na raiz precisa de um clique em Deploy no serviço do
+app. Vale conferir pelo horário do último deploy no painel.
 
 ### 8.5. Migração automática no deploy ❌ tentada em 2026-08-16, derrubou o site
 
