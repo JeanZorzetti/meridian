@@ -29,3 +29,8 @@ docs/Julho/
 # jetbrains setting folder
 .idea/
 .playwright-mcp/
+
+# Vercel CLI link and build output
+.vercel
+
+.vercel

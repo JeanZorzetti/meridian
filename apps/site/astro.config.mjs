@@ -3,15 +3,19 @@ import { defineConfig } from 'astro/config';
 
 import react from '@astrojs/react';
 import node from '@astrojs/node';
+import vercel from '@astrojs/vercel';
 import tailwindcss from '@tailwindcss/vite';
 
 // https://astro.build/config
-// Default output stays `static`: marketing pages prerender. The Node adapter
-// lets /admin, /login and /api/* opt into on-demand SSR via `prerender = false`.
+// Default output stays `static`: marketing pages prerender. The adapter lets
+// /admin, /login and /api/* opt into on-demand SSR via `prerender = false`.
+// Vercel sets VERCEL=1 at build time; the EasyPanel service keeps the Node
+// adapter until DNS moves, since it still redeploys on every push to main.
+// ponytail: drop the node branch once the EasyPanel service is gone.
 export default defineConfig({
   site: 'https://meridian.roilabs.com.br',
   integrations: [react()],
-  adapter: node({ mode: 'standalone' }),
+  adapter: process.env.VERCEL ? vercel() : node({ mode: 'standalone' }),
 
   security: {
     // The proxy terminates TLS and forwards plain HTTP, so the request reaches
