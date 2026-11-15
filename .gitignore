@@ -32,5 +32,4 @@ docs/Julho/
 
 # Vercel CLI link and build output
 .vercel
-
-.vercel
+.env.local
