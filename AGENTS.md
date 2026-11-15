@@ -67,19 +67,27 @@ Manage the background server with `astro dev stop`, `astro dev status`, and `ast
 
 ## Deploy
 
-Two EasyPanel services from this one repo, both built by Nixpacks from the repo
-root. They differ only in which scripts they run:
+**Site (`apps/site`) — Vercel**, project `meridian` (root directory `apps/site`,
+Node 22, functions in `gru1`). The repo is connected: every push to `main`
+deploys production, at https://meridian-theta-wheat.vercel.app until the
+`meridian.roilabs.com.br` DNS moves. `astro.config.mjs` picks the Vercel adapter
+when `VERCEL` is set and the Node adapter otherwise.
 
-| Service | Install | Build | Start |
-|---|---|---|---|
-| site | *(empty)* | *(empty)* | *(empty)* |
-| app | *(empty)* | `npm run build:app` | `npm run start:app` |
+**Database — Postgres 16 on the VPS**, EasyPanel service `meridian_db` in the
+`sirius-crm` project (database and user `meridian`), published on
+`2.24.207.200:5446`. `DATABASE_URL` lives in the Vercel project (Production) and
+in the local `.env`, nowhere else. The Hostinger firewall drops every port
+without a rule, so Vercel only reaches the database while a rule for 5446
+exists; from a dev machine, tunnel instead:
+`ssh -N -L 15446:localhost:5446 root@2.24.207.200` and point `DATABASE_URL` at
+`127.0.0.1:15446`.
 
-The site's three fields are empty on purpose — Nixpacks then reads the root
-`package.json` and runs `npm ci`, `npm run build`, `npm start`, which is what
-makes the monorepo work without a Dockerfile. **Do not write a path into them.**
-Root `build` and `start` are therefore reserved for the site; the app has its own
-`build:app` / `start:app` beside them.
+The old EasyPanel services (site and database) were removed, and their data went
+with them: this database started empty on 2026-11-15, with migration `0001` and
+the seeded admin.
+
+**App (`apps/app`) is not deployed anywhere.** Root `build` and `start` stay
+reserved for the site; the app has its own `build:app` / `start:app` beside them.
 
 ## Database
 

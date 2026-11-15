@@ -1,5 +1,15 @@
 # Meridian — Handoff
 
+> **Atualização de 2026-11-15 — o que mudou desde o texto abaixo.** O site saiu
+> do EasyPanel e está na **Vercel** (projeto `meridian`, ligado ao GitHub: cada
+> push no `main` publica), em https://meridian-theta-wheat.vercel.app. O serviço
+> do site e o banco antigos do EasyPanel não existem mais, e não havia backup: o
+> banco novo (`meridian_db`, Postgres 16 na VPS, porta 5446) começou **vazio**,
+> com a migração `0001` e o usuário admin. A senha antiga, a da 8.4, morreu com o
+> banco antigo. O domínio `meridian.roilabs.com.br` ainda aponta para a VPS e
+> responde 404. O estado de deploy que vale é a seção Deploy do `CLAUDE.md`; as
+> seções 0, 8.3, 8.4 e 8.5 abaixo descrevem o EasyPanel e ficaram como registro.
+
 **Última atualização:** 2026-08-16
 **Estado:** no ar, estável e verificado rota por rota. Migração `0001` aplicada
 no banco de produção, e confirmado que o container fala com o banco. **A migração
