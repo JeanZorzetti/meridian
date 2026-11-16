@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { streak, summarize, type MonthLedger } from "@meridian/core/budget";
 import { buildModel, type CategoryModel } from "@meridian/core/categorize";
 import { anomalies, forecast, goalProgress, insights, pace, project, type Goal } from "@meridian/core/insights";
+import { cutPanel, meatBudgetCents, meatTotals, type MeatCut, type MeatPurchase, type MeatTarget } from "@meridian/core/meat";
 import { applyCreditCost, deriveInvoice, type Card, type Invoice } from "@meridian/core/cards";
 
 // Server-only. `import.meta.env` is Vite's, populated from .env by Astro in
@@ -118,6 +119,43 @@ export async function getSpendHistory(userId: number) {
   return [...rows];
 }
 
+export interface DbWish {
+  id: number;
+  item: string;
+  estimate_cents: number | null;
+  when_text: string | null;
+  sort_order: number;
+  done: boolean;
+}
+
+/** A lista de prioridades: fora do mês, como as metas. Pendentes primeiro. */
+export async function getWishlist(userId: number) {
+  const rows = await sql<DbWish[]>`
+    select id, item, estimate_cents, when_text, sort_order, done from wishlist
+    where user_id = ${userId} order by done, sort_order, id`;
+  return [...rows];
+}
+
+/** Carnes do mês: a tabela de cortes, os lançamentos, as metas e as contas feitas
+ *  pelo núcleo (meat.ts). O orçamento é a conta «Carnes» do próprio mês. */
+export async function getMeat(userId: number, month: string, bills: { name: string; planned_cents: number; actual_cents: number | null }[]) {
+  const [cuts, purchases, targets] = await Promise.all([
+    sql<MeatCut[]>`select id, category, name, ref_price_cents from meat_cuts
+                   where user_id = ${userId} order by category, name`,
+    sql<MeatPurchase[]>`select id, to_char(spent_on, 'YYYY-MM-DD') as spent_on, cut_id, grams, paid_cents
+                        from meat_purchases where user_id = ${userId} and month = ${month}
+                        order by spent_on, id`,
+    sql<MeatTarget[]>`select cut_id, grams from meat_targets
+                      where user_id = ${userId} and month = ${month}`,
+  ]);
+  const budget_cents = meatBudgetCents(bills);
+  return {
+    cuts: [...cuts], purchases: [...purchases], targets: [...targets],
+    totals: meatTotals([...purchases], budget_cents),
+    panel: cutPanel([...cuts], [...purchases], [...targets]),
+  };
+}
+
 export async function getCards(userId: number) {
   const rows = await sql<DbCard[]>`
     select id, label, closing_day, due_day, limit_cents, reserve_cents
@@ -185,7 +223,7 @@ export async function getCategoryModel(userId: number): Promise<CategoryModel> {
  *  SSR page (admin.astro) and the client refetch (/api/month/[month]) hand to
  *  BudgetApp — they must not drift apart. */
 export async function getMonthView(userId: number, month: string, today: Date) {
-  const [snap, history, baselines, goals, cards, invoiceRows] = await Promise.all([
+  const [snap, history, baselines, goals, cards, invoiceRows, wishlist] = await Promise.all([
     getMonthSnapshot(userId, month),
     getSpendHistory(userId),
     getMonthlyBaselines(userId),
@@ -195,7 +233,9 @@ export async function getMonthView(userId: number, month: string, today: Date) {
                 from goals where user_id = ${userId} order by by_month, id`,
     getCards(userId),
     getInvoiceRows(userId, month),
+    getWishlist(userId),
   ]);
+  const meat = await getMeat(userId, month, snap.bills);
   const invoices: Invoice[] = cards.map((c: Card) =>
     deriveInvoice(c, month, history, snap.bills, invoiceRows.find((r) => r.card_id === c.id) ?? null),
   );
@@ -253,6 +293,8 @@ export async function getMonthView(userId: number, month: string, today: Date) {
     goals: goalProgress([...goals], netByMonth, fc, month),
     cards,
     invoices,
+    meat,
+    wishlist,
     insights: {
       projection, anomalies: anoms, forecast: fc, pace: pace(summary, month, today),
       lines: insights(summary, snap.bills, projection, anoms, fc, month, today),

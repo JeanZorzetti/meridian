@@ -8,9 +8,10 @@
     "./budget": "./src/budget.ts",
     "./insights": "./src/insights.ts",
     "./cards": "./src/cards.ts",
-    "./categorize": "./src/categorize.ts"
+    "./categorize": "./src/categorize.ts",
+    "./meat": "./src/meat.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types src/budget.test.ts && node --experimental-strip-types src/insights.test.ts && node --experimental-strip-types src/categorize.test.ts && node --experimental-strip-types src/cards.test.ts"
+    "test": "node --experimental-strip-types src/budget.test.ts && node --experimental-strip-types src/insights.test.ts && node --experimental-strip-types src/categorize.test.ts && node --experimental-strip-types src/cards.test.ts && node --experimental-strip-types src/meat.test.ts"
   }
 }

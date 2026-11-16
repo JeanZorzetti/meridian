@@ -6,7 +6,8 @@
   "description": "Postgres client, queries, sessions and the versioned schema migrations.",
   "exports": {
     ".": "./src/db.ts",
-    "./auth": "./src/auth.ts"
+    "./auth": "./src/auth.ts",
+    "./meat": "./src/meat.ts"
   },
   "dependencies": {
     "@meridian/core": "*",

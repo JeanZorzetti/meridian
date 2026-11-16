@@ -12,6 +12,7 @@ import { brlToCents, centsToBRL, type Streak, type Summary } from "@meridian/cor
 import { CATEGORIES } from "@meridian/core/categorize";
 import type { Anomaly, GoalView, MonthForecast, Pace, Projection } from "@meridian/core/insights";
 import { interestOf, invoiceMonth } from "@meridian/core/cards";
+import { formatGrams, perKgCents, toGrams, type CutRow, type MeatTotals } from "@meridian/core/meat";
 import { Badge } from "@meridian/ui/components/badge";
 import { appPath } from "@/lib/paths";
 
@@ -45,10 +46,19 @@ interface ApiInsights {
   projection: Projection | null; anomalies: Anomaly[];
   forecast: MonthForecast[]; pace: Pace | null; lines: string[];
 }
+interface ApiCut { id: number; category: string; name: string; ref_price_cents: number }
+interface ApiPurchase { id: number; spent_on: string; cut_id: number; grams: number; paid_cents: number }
+// Carnes do mês — as contas vêm prontas de packages/core/src/meat.ts.
+interface ApiMeat {
+  cuts: ApiCut[]; purchases: ApiPurchase[]; targets: { cut_id: number; grams: number }[];
+  totals: MeatTotals;
+  panel: { rows: CutRow[]; total: { realized_grams: number; target_grams: number; balance_grams: number; budget_cents: number } };
+}
+interface ApiWish { id: number; item: string; estimate_cents: number | null; when_text: string | null; sort_order: number; done: boolean }
 interface MonthData {
   month: string; incomes: ApiIncome[]; bills: ApiBill[]; spends: ApiSpend[];
   summary: Summary; streak: Streak; goals: GoalView[]; insights: ApiInsights;
-  cards: ApiCard[]; invoices: ApiInvoice[];
+  cards: ApiCard[]; invoices: ApiInvoice[]; meat: ApiMeat; wishlist: ApiWish[];
 }
 
 // Shared <datalist> for every category input. Native autocomplete over a known
@@ -392,7 +402,9 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
             </div>
           </div>
           <CardsPanel month={month} cards={data.cards} invoices={data.invoices} act={act} />
+          <MeatPanel month={month} meat={data.meat} act={act} />
           <GoalsPanel goals={data.goals} act={act} />
+          <WishlistPanel wishlist={data.wishlist} act={act} />
           <Trends />
         </>
       )}
@@ -1068,6 +1080,302 @@ function GoalsPanel({ goals, act }: {
       {goals.length > 0 && (
         <div className="divide-border flex flex-col divide-y">
           {goals.map((g) => <GoalRow key={g.id} goal={g} act={act} />)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---- carnes: o controle das compras de carne do mês, preso à conta «Carnes».
+// Toda conta vem de @meridian/core/meat (já pronta em `meat`); aqui só se desenha
+// e se escreve: lançamento, meta por corte e a tabela de referência.
+function qtyToNumber(s: string) {
+  const n = Number(s.trim().replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function MeatPanel({ month, meat, act }: {
+  month: string; meat: ApiMeat; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [showCuts, setShowCuts] = useState(false);
+  const [cutId, setCutId] = useState("");
+  const [date, setDate] = useState(todayISO().startsWith(month) ? todayISO() : `${month}-01`);
+  const [qty, setQty] = useState("");
+  const [unit, setUnit] = useState<"kg" | "g">("kg");
+  const [paid, setPaid] = useState("");
+  useEffect(() => setDate(todayISO().startsWith(month) ? todayISO() : `${month}-01`), [month]);
+
+  const t = meat.totals;
+  const cutsById = useMemo(() => new Map(meat.cuts.map((c) => [c.id, c])), [meat.cuts]);
+  const grams = toGrams(qtyToNumber(qty), unit);
+  const paid_cents = brlToCents(paid);
+  const preview = grams > 0 && paid_cents > 0 ? perKgCents(paid_cents, grams) : null;
+  const targetOf = (id: number) => meat.targets.find((x) => x.cut_id === id)?.grams ?? 0;
+
+  const submit = () => {
+    if (!cutId || grams <= 0 || paid_cents < 0 || !paid.trim()) return;
+    act(() => api("/api/meat/purchases", "POST", { spent_on: date, cut_id: Number(cutId), grams, paid_cents }))
+      .then(() => { setQty(""); setPaid(""); });
+  };
+
+  const byCategory = useMemo(() => {
+    const map = new Map<string, ApiCut[]>();
+    for (const c of meat.cuts) (map.get(c.category) ?? map.set(c.category, []).get(c.category)!).push(c);
+    return [...map.entries()];
+  }, [meat.cuts]);
+
+  return (
+    <section className="reveal border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
+      <div className="border-border flex items-center justify-between gap-3 border-b px-4 py-3">
+        <h2 className="text-sm font-semibold tracking-[-0.01em]">Carnes</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCuts((s) => !s)}
+            className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">tabela de cortes</button>
+          <button onClick={() => setAdding((a) => !a)}
+            className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">+ compra</button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4">
+        <Metric label="Total gasto" value={centsToBRL(t.paid_cents)} />
+        <Metric label="Total comprado" value={formatGrams(t.grams)} />
+        <Metric label="Preço médio / kg" value={t.avg_per_kg_cents == null ? "—" : centsToBRL(t.avg_per_kg_cents)} />
+        <Metric label={t.budget_cents > 0 ? `Saldo de ${centsToBRL(t.budget_cents)}` : "Saldo (sem conta «Carnes»)"}
+          value={centsToBRL(t.balance_cents)} tone={t.budget_cents > 0 ? (t.balance_cents < 0 ? "rose" : "mint") : undefined} />
+      </div>
+
+      {adding && (
+        <div className="border-border bg-surface-1/40 flex flex-col gap-2 border-t px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="date" aria-label="data da compra" value={date} min={`${month}-01`} onChange={(e) => setDate(e.target.value)} className={INPUT} />
+            <select aria-label="corte" value={cutId} onChange={(e) => setCutId(e.target.value)} className={`${INPUT} min-w-40 flex-1`}>
+              <option value="">corte…</option>
+              {byCategory.map(([cat, cs]) => (
+                <optgroup key={cat} label={cat}>{cs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input placeholder="quantidade" aria-label="quantidade" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-28 text-right`} />
+            <select aria-label="unidade" value={unit} onChange={(e) => setUnit(e.target.value as "kg" | "g")} className={`${INPUT} w-16`}>
+              <option value="kg">kg</option><option value="g">g</option>
+            </select>
+            <input placeholder="valor pago R$ 0,00" aria-label="valor pago" inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-40 text-right`} />
+            <button onClick={submit}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+            <button onClick={() => setAdding(false)} className="text-muted-foreground text-sm">cancelar</button>
+          </div>
+          {preview != null && (
+            <p className="text-muted-foreground text-xs">Preço efetivo: <span className="tnum text-foreground">{centsToBRL(preview)}</span>/kg</p>
+          )}
+        </div>
+      )}
+
+      {meat.purchases.length === 0 ? (
+        <p className="text-muted-foreground border-border border-t px-4 py-6 text-center text-xs">Nenhuma compra de carne lançada neste mês.</p>
+      ) : (
+        <div className="border-border border-t">
+          {[...meat.purchases].reverse().map((p) => {
+            const kg = perKgCents(p.paid_cents, p.grams);
+            return (
+              <div key={p.id} className="border-border hover:bg-white/[0.02] flex items-center gap-3 border-b px-4 py-2 last:border-b-0">
+                <span className="tnum text-muted-foreground w-12 shrink-0 text-xs">{p.spent_on.slice(8)}/{p.spent_on.slice(5, 7)}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{cutsById.get(p.cut_id)?.name ?? "corte"}</span>
+                <span className="tnum text-muted-foreground shrink-0 text-xs">{formatGrams(p.grams)}</span>
+                <span className="tnum text-muted-foreground w-20 shrink-0 text-right text-xs">{kg == null ? "—" : `${centsToBRL(kg)}/kg`}</span>
+                <span className="tnum w-24 shrink-0 text-right text-sm">{centsToBRL(p.paid_cents)}</span>
+                <button aria-label="excluir compra"
+                  onClick={() => confirm("Excluir esta compra de carne?") && act(() => api(`/api/meat/purchases/${p.id}`, "DELETE"))}
+                  className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* painel gerencial por corte: realizado × meta (a meta se digita aqui, em kg) */}
+      {(meat.panel.rows.length > 0 || meat.cuts.length > 0) && (
+        <div className="border-border border-t">
+          <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
+            <span className="eyebrow">Por corte</span>
+            <select aria-label="definir meta de um corte" value=""
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                if (!id) return;
+                const v = prompt(`Meta de ${cutsById.get(id)?.name} neste mês, em kg:`, "");
+                const g = v == null ? 0 : toGrams(qtyToNumber(v), "kg");
+                if (g > 0) act(() => api("/api/meat/targets", "PUT", { month, cut_id: id, grams: g }));
+              }}
+              className="text-muted-foreground bg-transparent text-xs outline-none">
+              <option value="">+ meta de corte…</option>
+              {meat.cuts.filter((c) => targetOf(c.id) === 0).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          {meat.panel.rows.length > 0 && (
+            <div className="overflow-x-auto px-4 pb-3">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground text-right">
+                    <th className="py-1 text-left font-normal">corte</th>
+                    <th className="font-normal">realizado</th><th className="font-normal">meta (kg)</th>
+                    <th className="font-normal">saldo</th><th className="font-normal">orçamento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {meat.panel.rows.map((r) => (
+                    <tr key={r.cut_id} className="border-border border-t text-right">
+                      <td className="py-1.5 text-left">{r.name}</td>
+                      <td className="tnum">{formatGrams(r.realized_grams)}</td>
+                      <td>
+                        <input aria-label={`meta de ${r.name} em kg`} defaultValue={r.target_grams ? String(r.target_grams / 1000).replace(".", ",") : ""}
+                          placeholder="—" inputMode="decimal"
+                          onBlur={(e) => {
+                            const g = toGrams(qtyToNumber(e.target.value), "kg");
+                            if (g !== r.target_grams) act(() => api("/api/meat/targets", "PUT", { month, cut_id: r.cut_id, grams: g }));
+                          }}
+                          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                          className={`${INPUT} tnum h-7 w-16 text-right`} />
+                      </td>
+                      <td className={`tnum ${r.target_grams > 0 && r.balance_grams < 0 ? "text-destructive" : ""}`}>
+                        {r.target_grams > 0 ? formatGrams(r.balance_grams) : "—"}
+                      </td>
+                      <td className="tnum">{centsToBRL(r.budget_cents)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-border border-t text-right font-medium">
+                    <td className="py-1.5 text-left">Total geral</td>
+                    <td className="tnum">{formatGrams(meat.panel.total.realized_grams)}</td>
+                    <td className="tnum">{formatGrams(meat.panel.total.target_grams)}</td>
+                    <td className="tnum">{meat.panel.total.target_grams > 0 ? formatGrams(meat.panel.total.balance_grams) : "—"}</td>
+                    <td className="tnum">{centsToBRL(meat.panel.total.budget_cents)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showCuts && <MeatCuts byCategory={byCategory} act={act} />}
+    </section>
+  );
+}
+
+// A tabela de referência: o último preço por kg de cada corte. Editar o preço aqui
+// muda só o ponto de partida — com compra no mês, vale o preço efetivo dela.
+function MeatCuts({ byCategory, act }: {
+  byCategory: [string, ApiCut[]][]; act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [cat, setCat] = useState("");
+  const [price, setPrice] = useState("");
+  const submit = () => {
+    if (!name.trim()) return;
+    act(() => api("/api/meat/cuts", "POST", { name: name.trim(), category: cat.trim() || "Outros", ref_price_cents: brlToCents(price) }))
+      .then(() => { setName(""); setCat(""); setPrice(""); });
+  };
+  return (
+    <div className="border-border border-t">
+      <div className="px-4 pt-2.5 pb-1"><span className="eyebrow">Tabela de referência (R$/kg)</span></div>
+      <div className="bg-surface-1/40 border-border flex flex-wrap items-center gap-2 border-y px-4 py-2.5">
+        <input placeholder="corte" value={name} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+        <input placeholder="categoria" value={cat} onChange={(e) => setCat(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} w-28`} />
+        <input placeholder="R$/kg" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-24 text-right`} />
+        <button onClick={submit}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+      </div>
+      {byCategory.map(([category, cs]) => (
+        <div key={category}>
+          <div className="bg-surface-1/40 border-border border-b px-4 py-1.5"><span className="eyebrow">{category}</span></div>
+          {cs.map((c) => (
+            <div key={c.id} className="border-border flex items-center gap-3 border-b px-4 py-1.5 last:border-b-0">
+              <span className="min-w-0 flex-1 truncate text-sm">{c.name}</span>
+              <MoneyInput cents={c.ref_price_cents} className="w-24"
+                onCommit={(v) => act(() => api(`/api/meat/cuts/${c.id}`, "PATCH", { ref_price_cents: v }))} />
+              <button aria-label={`excluir ${c.name}`}
+                onClick={() => confirm(`Excluir o corte “${c.name}”?`) && act(() => api(`/api/meat/cuts/${c.id}`, "DELETE"))}
+                className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- lista de prioridades: a lista de desejos. Fora do mês, como as Metas. O valor
+// pode faltar («1 peça por mês» não é número) e o «quando» é texto livre.
+function WishRow({ wish: w, act }: { wish: ApiWish; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const patch = (body: Record<string, unknown>) => act(() => api(`/api/wishlist/${w.id}`, "PATCH", body));
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-4 py-2">
+      <button aria-label={w.done ? "marcar como pendente" : "marcar como comprado"}
+        onClick={() => patch({ done: !w.done })}
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border text-[11px] ${
+          w.done ? "bg-primary text-primary-foreground border-transparent" : "border-input text-transparent"}`}>✓</button>
+      <input aria-label="item" defaultValue={w.item}
+        onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== w.item) patch({ item: v }); }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        className={`${INPUT} h-8 min-w-40 flex-1 ${w.done ? "text-muted-foreground line-through" : ""}`} />
+      <MoneyInput cents={w.estimate_cents} placeholder="sem valor" className="w-28"
+        onCommit={(c) => patch({ estimate_cents: c })} />
+      <input aria-label="quando" defaultValue={w.when_text ?? ""} placeholder="quando"
+        onBlur={(e) => { const v = e.target.value.trim(); if (v !== (w.when_text ?? "")) patch({ when_text: v }); }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        className={`${INPUT} h-8 w-36`} />
+      <button aria-label="excluir item"
+        onClick={() => confirm(`Excluir “${w.item}” da lista?`) && act(() => api(`/api/wishlist/${w.id}`, "DELETE"))}
+        className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
+    </div>
+  );
+}
+
+function WishlistPanel({ wishlist, act }: { wishlist: ApiWish[]; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const [adding, setAdding] = useState(false);
+  const [item, setItem] = useState("");
+  const [value, setValue] = useState("");
+  const [when, setWhen] = useState("");
+  const pending = wishlist.filter((w) => !w.done);
+  const total = pending.reduce((a, w) => a + (w.estimate_cents ?? 0), 0);
+  const submit = () => {
+    if (!item.trim()) return;
+    act(() => api("/api/wishlist", "POST", {
+      item: item.trim(), estimate_cents: value.trim() ? brlToCents(value) : null, when_text: when.trim() || null,
+    })).then(() => { setItem(""); setValue(""); setWhen(""); setAdding(false); });
+  };
+  return (
+    <section className="reveal border-border bg-card ring-foreground/10 mt-6 rounded-xl border ring-1">
+      <div className={`flex items-center justify-between gap-3 px-4 py-3 ${wishlist.length || adding ? "border-border border-b" : ""}`}>
+        <h2 className="text-sm font-semibold tracking-[-0.01em]">Lista de prioridades</h2>
+        <div className="flex items-center gap-2.5">
+          {total > 0 && <span className="text-muted-foreground text-xs" title="Soma dos itens pendentes que têm valor.">
+            <span className="tnum">{centsToBRL(total)}</span> pendentes</span>}
+          <button onClick={() => setAdding((a) => !a)}
+            className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-2.5 text-xs">+ item</button>
+        </div>
+      </div>
+      {adding && (
+        <div className="border-border bg-surface-1/40 flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+          <input autoFocus placeholder="item (ex: Cadeiras)" value={item} onChange={(e) => setItem(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+          <input placeholder="R$ 0,00 (opcional)" value={value} inputMode="decimal" onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} tnum w-36 text-right`} />
+          <input placeholder="quando" value={when} onChange={(e) => setWhen(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} w-36`} />
+          <button onClick={submit}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-3 text-sm">add</button>
+          <button onClick={() => setAdding(false)} className="text-muted-foreground text-sm">cancelar</button>
+        </div>
+      )}
+      {wishlist.length > 0 && (
+        <div className="divide-border flex flex-col divide-y">
+          {wishlist.map((w) => <WishRow key={w.id} wish={w} act={act} />)}
         </div>
       )}
     </section>

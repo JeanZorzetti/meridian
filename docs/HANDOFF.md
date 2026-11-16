@@ -10,6 +10,16 @@
 > responde 404. O estado de deploy que vale é a seção Deploy do `CLAUDE.md`; as
 > seções 0, 8.3, 8.4 e 8.5 abaixo descrevem o EasyPanel e ficaram como registro.
 
+> **Também em 2026-11-15 — Carnes e Lista de prioridades.** As duas telas que
+> faltavam da planilha CONTAS estão no ar: migração `0002`, contas em
+> `packages/core/src/meat.ts`, escritas em `packages/db/src/meat.ts`, rotas
+> `/api/meat/*` e `/api/wishlist` e as seções «Carnes» e «Lista de prioridades» do
+> `BudgetApp.tsx` (nas duas apps). Importados da planilha: a compra de set/2026
+> (562 g de peito bovino) e a de out/2026 (frango inteiro, **2,53 kg** — a aba diz
+> «562 kg», resto de cópia; R$ 22,74 ÷ R$ 8,99 = 2,53) e os 4 itens da lista. As
+> abas `carne NOV 2026` (562 kg a R$ 0) e as de 2026 anteriores a setembro não têm
+> lançamento real e não foram importadas. A aba «Compras» ficou de fora a pedido.
+
 **Última atualização:** 2026-08-16
 **Estado:** no ar, estável e verificado rota por rota. Migração `0001` aplicada
 no banco de produção, e confirmado que o container fala com o banco. **A migração

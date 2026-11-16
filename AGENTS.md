@@ -86,6 +86,15 @@ The old EasyPanel services (site and database) were removed, and their data went
 with them: this database started empty on 2026-11-15, with migration `0001` and
 the seeded admin.
 
+**Telas Carnes e Lista de prioridades (2026-11-15)** — vivem no `BudgetApp.tsx`
+das duas apps (seções «Carnes», dentro do mês, ligada à conta «Carnes», e «Lista de
+prioridades», fora do mês como as Metas). As contas são de `packages/core/src/meat.ts`
+(gramas e centavos inteiros); as escritas e a validação, de `packages/db/src/meat.ts`
+(`@meridian/db/meat`), que as rotas `/api/meat/{cuts,purchases,targets}` e
+`/api/wishlist` das duas apps só repassam. Tabelas `meat_cuts`, `meat_purchases`,
+`meat_targets`, `wishlist` (migração `0002`). `packages/db/seed-carnes.mjs` importa as
+compras de set e out/2026 e a lista da planilha (simulação por padrão, `--commit` grava).
+
 **App (`apps/app`) is not deployed anywhere.** Root `build` and `start` stay
 reserved for the site; the app has its own `build:app` / `start:app` beside them.
 
