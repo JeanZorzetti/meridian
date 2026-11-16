@@ -1248,7 +1248,7 @@ function MeatPanel({ month, meat, act }: {
                   <tr className="border-border border-t text-right font-medium">
                     <td className="py-1.5 text-left">Total geral</td>
                     <td className="tnum">{formatGrams(meat.panel.total.realized_grams)}</td>
-                    <td className="tnum">{formatGrams(meat.panel.total.target_grams)}</td>
+                    <td className="tnum">{meat.panel.total.target_grams > 0 ? formatGrams(meat.panel.total.target_grams) : "—"}</td>
                     <td className="tnum">{meat.panel.total.target_grams > 0 ? formatGrams(meat.panel.total.balance_grams) : "—"}</td>
                     <td className="tnum">{centsToBRL(meat.panel.total.budget_cents)}</td>
                   </tr>
@@ -1328,7 +1328,7 @@ function WishRow({ wish: w, act }: { wish: ApiWish; act: (fn: () => Promise<unkn
       <input aria-label="quando" defaultValue={w.when_text ?? ""} placeholder="quando"
         onBlur={(e) => { const v = e.target.value.trim(); if (v !== (w.when_text ?? "")) patch({ when_text: v }); }}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        className={`${INPUT} h-8 w-36`} />
+        className={`${INPUT} h-8 w-44`} />
       <button aria-label="excluir item"
         onClick={() => confirm(`Excluir “${w.item}” da lista?`) && act(() => api(`/api/wishlist/${w.id}`, "DELETE"))}
         className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
