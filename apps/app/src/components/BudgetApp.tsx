@@ -1567,19 +1567,21 @@ function DailyPanel({ month, spends, anomalies, act, summary, pool, notify, card
         </div>
         <div className="flex gap-2">
           <input placeholder="categoria (auto)" value={cat} list={CAT_LIST} onChange={(e) => setCat(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} w-32`} />
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} w-32 min-w-0`} />
           <input placeholder="nota (opcional)" value={note} onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
+            onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} min-w-0 flex-1`} />
+        </div>
+        <div className="flex gap-2">
           {/* only appears once a card exists — nothing changes for cash-only users */}
           {cards.length > 0 && (
             <select aria-label="cartão" value={cardId} onChange={(e) => pickCard(e.target.value)}
-              className={`${INPUT} w-24 shrink-0`}>
+              className={`${INPUT} min-w-0 flex-1`}>
               <option value="">à vista</option>
               {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           )}
           <button onClick={submit}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 shrink-0 items-center rounded-md px-3 text-sm">Lançar</button>
+            className={`bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm ${cards.length ? "" : "flex-1"}`}>Lançar</button>
         </div>
         {card && lands && (
           <p className="text-muted-foreground text-xs">
@@ -1594,7 +1596,8 @@ function DailyPanel({ month, spends, anomalies, act, summary, pool, notify, card
           [...spends].reverse().map((sp) => {
             const odd = flagged.get(sp.id);
             return (
-            <div key={sp.id} className="border-border hover:bg-white/[0.02] group flex items-center gap-3 border-b px-4 py-2 last:border-b-0">
+            <div key={sp.id} className="border-border hover:bg-white/[0.02] group border-b px-4 py-2 last:border-b-0">
+            <div className="flex items-center gap-3">
               <span className="tnum text-muted-foreground w-12 shrink-0 text-xs">{sp.spent_on.slice(8)}/{sp.spent_on.slice(5, 7)}</span>
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {/* Editable: a wrong guess the user can only delete is a wrong guess
@@ -1615,29 +1618,32 @@ function DailyPanel({ month, spends, anomalies, act, summary, pool, notify, card
                     aria-label={`fora do padrão de ${odd.category}, mediana ${centsToBRL(odd.median_cents)}`}
                     title={`Fora do padrão de ${odd.category} — mediana ${centsToBRL(odd.median_cents)}`}>⚠</span>
                 )}
-                {/* The card is editable for the same reason the category is: a
-                    spend on the wrong card lands on the wrong invoice. */}
-                {cards.length > 0 && (
-                  <select aria-label={`cartão do gasto de ${sp.spent_on}`} value={sp.card_id ?? ""}
-                    onChange={(e) => act(() => api(`/api/spends/${sp.id}`, "PATCH",
-                      { card_id: e.target.value ? Number(e.target.value) : null }))}
-                    className="text-muted-foreground hover:text-foreground max-w-24 shrink-0 bg-transparent text-[10px] outline-none">
-                    <option value="">à vista</option>
-                    {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                )}
-                {sp.card_id != null && cardsById.get(sp.card_id) && (
-                  <span className="border-border text-muted-foreground shrink-0 rounded-full border px-1.5 text-[10px]"
-                    title="Mês em que a fatura desta compra vence.">
-                    fatura {monthShort(invoiceMonth(sp.spent_on, cardsById.get(sp.card_id)!.closing_day, cardsById.get(sp.card_id)!.due_day))}
-                  </span>
-                )}
                 <span className="min-w-0 truncate text-sm">{sp.note || "—"}</span>
               </div>
               <span className={`tnum text-sm ${odd ? "text-destructive" : ""}`}>{centsToBRL(sp.amount_cents)}</span>
               <button aria-label="excluir"
                 onClick={() => confirm("Excluir este gasto?") && act(() => api(`/api/spends/${sp.id}`, "DELETE"))}
                 className="text-foreground/25 hover:text-destructive focus-visible:text-destructive shrink-0 text-lg leading-none">×</button>
+            </div>
+            {/* Second line: which card, and the invoice it lands on. The card is
+                editable for the same reason the category is: a spend on the wrong
+                card lands on the wrong invoice. */}
+            {cards.length > 0 && (
+              <div className="mt-1 flex items-center gap-2 pl-[3.75rem]">
+                <select aria-label={`cartão do gasto de ${sp.spent_on}`} value={sp.card_id ?? ""}
+                  onChange={(e) => act(() => api(`/api/spends/${sp.id}`, "PATCH",
+                    { card_id: e.target.value ? Number(e.target.value) : null }))}
+                  className="text-muted-foreground hover:text-foreground bg-transparent text-[11px] outline-none">
+                  <option value="">à vista</option>
+                  {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+                {sp.card_id != null && cardsById.get(sp.card_id) && (
+                  <span className="text-muted-foreground text-[11px]" title="Mês em que a fatura desta compra vence.">
+                    → fatura de {monthShort(invoiceMonth(sp.spent_on, cardsById.get(sp.card_id)!.closing_day, cardsById.get(sp.card_id)!.due_day))}
+                  </span>
+                )}
+              </div>
+            )}
             </div>
             );
           })
