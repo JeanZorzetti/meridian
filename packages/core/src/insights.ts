@@ -390,21 +390,34 @@ export function insights(
   fc: MonthForecast[],
   month: string,
   today: Date,
+  // Set when the hero reads the card pool (cardPool() in cards.ts): `summary` is
+  // then poolAsSummary(), and the lines talk about the invoice that pays it.
+  opts: { pool_month?: string } = {},
 ): string[] {
   const lines: string[] = [];
   const [y, m] = month.split("-").map(Number);
   const monthName = MONTH_NAMES[m - 1];
+  const poolName = opts.pool_month ? MONTH_NAMES[Number(opts.pool_month.split("-")[1]) - 1] : null;
 
   if (projection) {
     const end = projection.projected_end_cents;
-    const pace = `No ritmo de ${centsToBRL(projection.daily_burn_cents)}/dia você fecha ${monthName}`;
-    lines.push(end < 0
-      ? `${pace} no vermelho em ${centsToBRL(-end)}.`
-      : `${pace} com ${centsToBRL(end)} sobrando.`);
+    if (poolName) {
+      const pace = `No ritmo de ${centsToBRL(projection.daily_burn_cents)}/dia no cartão, a fatura de ${poolName}`;
+      lines.push(end < 0
+        ? `${pace} passa em ${centsToBRL(-end)} do que ${poolName} consegue pagar.`
+        : `${pace} ainda deixa ${centsToBRL(end)} livres.`);
+    } else {
+      const pace = `No ritmo de ${centsToBRL(projection.daily_burn_cents)}/dia você fecha ${monthName}`;
+      lines.push(end < 0
+        ? `${pace} no vermelho em ${centsToBRL(-end)}.`
+        : `${pace} com ${centsToBRL(end)} sobrando.`);
+    }
   }
 
   if (summary.per_day_start_cents > 0 && summary.per_day_cents < summary.per_day_start_cents * 0.7) {
-    lines.push(`Sua mesada caiu de ${centsToBRL(summary.per_day_start_cents)} para ${centsToBRL(summary.per_day_cents)}/dia.`);
+    lines.push(poolName
+      ? `O que cabe no cartão por dia caiu de ${centsToBRL(summary.per_day_start_cents)} para ${centsToBRL(summary.per_day_cents)}.`
+      : `Sua mesada caiu de ${centsToBRL(summary.per_day_start_cents)} para ${centsToBRL(summary.per_day_cents)}/dia.`);
   }
 
   // Same translation pace() uses (delta ÷ baseline allowance): money into days,
@@ -415,9 +428,12 @@ export function insights(
     lines.push(`Juros e tarifas do crédito somaram ${centsToBRL(summary.interest_cents)} neste mês — ${daysTxt} ${days === 1 ? "dia" : "dias"} da sua mesada.`);
   }
 
+  // Share of the month's purchases (by_category), not of spent_cents: with cards,
+  // spent_cents is only what was paid à vista.
   const top = summary.by_category[0];
-  if (top && summary.spent_cents > 0) {
-    const pct = Math.round((top.cents / summary.spent_cents) * 100);
+  const purchased = summary.by_category.reduce((a, c) => a + c.cents, 0);
+  if (top && purchased > 0) {
+    const pct = Math.round((top.cents / purchased) * 100);
     if (pct >= 30) lines.push(`${top.category} concentra ${pct}% dos gastos do mês (${centsToBRL(top.cents)}).`);
   }
 
@@ -444,6 +460,9 @@ export function insights(
   // Backtesting puts the band at 3/7 coverage — it's the shape of the month,
   // not a promise, and the wording shouldn't claim more than that.
   for (const f of fc) {
+    // The pool already speaks for its month with that month's real invoices; a
+    // band built from the median spend would contradict it on the same screen.
+    if (opts.pool_month && f.month === opts.pool_month) continue;
     const name = MONTH_NAMES[Number(f.month.split("-")[1]) - 1];
     const label = name.charAt(0).toUpperCase() + name.slice(1);
     const freed = f.ends_count > 0

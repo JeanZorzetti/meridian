@@ -1,6 +1,6 @@
 // Self-check for the credit layer. Run: node --experimental-strip-types src/lib/cards.test.ts
 import assert from "node:assert";
-import { applyCreditCost, deriveInvoice, interestOf, invoiceMonth, type Card } from "./cards.ts";
+import { cardPool, deriveInvoice, interestOf, invoiceMonth, summarizeWithCards, type Card } from "./cards.ts";
 import { summarize } from "./budget.ts";
 
 // --- invoiceMonth ---
@@ -63,32 +63,90 @@ const reserveCard: Card = { ...card, reserve_cents: 3000 };
 const withReserve = deriveInvoice(reserveCard, "2026-09", spends, bills, null);
 assert.equal(withReserve.expected_cents, 72000); // 42000 + 27000 + 3000
 
-// --- applyCreditCost: no cards -> zero visible change ---
-const incomes = [{ amount_cents: 750000 }];
-const plainBills = [{ planned_cents: 100000, actual_cents: null, paid: false }];
-const baseline = summarize(incomes, plainBills, [], "2026-09", new Date(2026, 8, 1));
-assert.equal(baseline.cash_out_cents, baseline.committed_cents);
-assert.equal(baseline.interest_cents, 0);
-const unchanged = applyCreditCost(baseline, [], []);
-assert.deepEqual(unchanged, baseline);
+// due_cents: o que a fatura soma às Contas além das parcelas já listadas
+assert.equal(septInvoice.due_cents, 42000); // 69000 previsto − 27000 de parcela
+assert.equal(septWithExtrato.due_cents, 43000); // 70000 do extrato − 27000 de parcela
+assert.equal(withReserve.due_cents, 45000); // compras + reserva
 
-// --- applyCreditCost: a real scenario, no double counting ---
-// committed_cents already counts the card bill (27000) at competência. cash_out
-// must swap that 27000 for the invoice's total (70000, extrato real) exactly
-// once — never both.
-const cardBillsForSummary = [
-  { planned_cents: 632818, actual_cents: null, paid: false }, // conta comum, sem cartão
-  { planned_cents: 27000, actual_cents: null, paid: false, card_id: 1 }, // parcela do cartão
-];
-const s = summarize(incomes, cardBillsForSummary, [], "2026-09", new Date(2026, 8, 1));
-assert.equal(s.committed_cents, 659818); // 632818 + 27000 — a mesada continua em competência
-const withCard = applyCreditCost(
-  s,
-  [{ card_id: 1, month: "2026-09", planned_cents: 27000, actual_cents: null, installment_total: 4, principal_cents: 100000 }],
-  [septWithExtrato],
+// --- summarizeWithCards: sem cartão -> exatamente summarize() ---
+const incomes = [{ amount_cents: 750000 }];
+const plainBills = [{ planned_cents: 100000, actual_cents: null, paid: false, installment_total: null, principal_cents: null }];
+const cashOnly = [{ amount_cents: 5000, spent_on: "2026-09-02", category: "Mercado", card_id: null }];
+const sept1 = new Date(2026, 8, 1);
+assert.deepEqual(
+  summarizeWithCards(incomes, plainBills, cashOnly, [], "2026-09", sept1),
+  summarize(incomes, plainBills, cashOnly, "2026-09", sept1),
 );
-// 659818 - 27000 (a parcela, já contada) + 70000 (o extrato real da fatura)
-assert.equal(withCard.cash_out_cents, 702818);
-assert.equal(withCard.interest_cents, 2000); // R$20 de juros embutidos nesta parcela
+
+// --- summarizeWithCards: a fatura entra em Contas, a compra no cartão não desconta na hora ---
+const septBills = [
+  { planned_cents: 632818, actual_cents: null, paid: false, installment_total: null, principal_cents: null }, // conta comum
+  { planned_cents: 27000, actual_cents: null, paid: false, installment_total: 4, principal_cents: 100000 }, // parcela do cartão
+];
+const septSpends = [
+  { amount_cents: 9000, spent_on: "2026-09-05", category: "Lazer", card_id: card.id }, // no cartão: vai para a fatura de outubro
+  { amount_cents: 1000, spent_on: "2026-09-06", category: "Mercado", card_id: null }, // à vista: desconta hoje
+];
+const s = summarizeWithCards(incomes, septBills, septSpends, [septWithExtrato], "2026-09", sept1);
+// 632818 + 27000 (contas) + 43000 (o que a fatura soma além da parcela) = o extrato inteiro, uma vez só
+assert.equal(s.committed_cents, 702818);
+assert.equal(s.cash_out_cents, 702818);
+assert.equal(s.sobra_cents, 750000 - 702818);
+assert.equal(s.spent_cents, 1000); // só o à vista
+assert.equal(s.remaining_cents, 750000 - 702818 - 1000);
+assert.equal(s.unpaid_cents, 632818 + 27000); // a fatura do exemplo já está paga
+assert.equal(s.interest_cents, 2000); // R$20 de juros embutidos nesta parcela
+// a divisão por categoria continua mostrando tudo o que foi comprado no mês
+assert.deepEqual(s.by_category, [{ category: "Lazer", cents: 9000 }, { category: "Mercado", cents: 1000 }]);
+// fatura em aberto entra no «a pagar»
+const open = summarizeWithCards(incomes, septBills, [], [septInvoice], "2026-09", sept1);
+assert.equal(open.unpaid_cents, 632818 + 27000 + 42000);
+
+// --- cardPool: o que cabe no cartão é o que o mês seguinte tem livre ---
+// Setembro, dia 11 (20 dias restantes de 30). Outubro tem R$ 3.000 livres antes das
+// faturas; a fatura de outubro já carrega R$ 600: R$ 500 de compras de setembro e
+// R$ 100 de reserva.
+const sept11 = new Date(2026, 8, 11);
+const landing = [
+  { amount_cents: 20000, spent_on: "2026-09-02" },
+  { amount_cents: 30000, spent_on: "2026-09-10" },
+];
+const pool = cardPool({
+  month: "2026-09", today: sept11, month_remaining_cents: 40000,
+  next_month: "2026-10", projected: true,
+  next_before_cents: 300000, next_due_cents: 60000, landing,
+});
+assert.equal(pool.month, "2026-10");
+assert.equal(pool.start_cents, 290000); // 3.000 − 100 de reserva; sobra de setembro não soma
+assert.equal(pool.used_cents, 50000);
+assert.equal(pool.remaining_cents, 240000);
+assert.equal(pool.hole_cents, 0);
+assert.equal(pool.per_day_cents, 12000); // 2.400 ÷ 20 dias
+assert.equal(pool.per_day_start_cents, Math.floor(290000 / 30));
+assert.equal(pool.burndown.length, 30);
+assert.equal(pool.burndown[0].remaining_cents, 290000);
+assert.equal(pool.burndown[1].remaining_cents, 270000);
+assert.equal(pool.burndown[29].remaining_cents, 240000);
+
+// mês atual fechando no vermelho: o buraco sai do que cabe no cartão
+const holed = cardPool({
+  month: "2026-09", today: sept11, month_remaining_cents: -40000,
+  next_month: "2026-10", projected: false,
+  next_before_cents: 300000, next_due_cents: 60000, landing,
+});
+assert.equal(holed.hole_cents, 40000);
+assert.equal(holed.start_cents, 250000);
+assert.equal(holed.remaining_cents, 200000);
+
+// compra de outubro (antes do fechamento) que já está na fatura: conta, mas não entra no gráfico de setembro
+const withNext = cardPool({
+  month: "2026-09", today: sept11, month_remaining_cents: 0,
+  next_month: "2026-10", projected: false,
+  next_before_cents: 300000, next_due_cents: 57000,
+  landing: [...landing, { amount_cents: 7000, spent_on: "2026-10-02" }],
+});
+assert.equal(withNext.used_cents, 57000);
+assert.equal(withNext.remaining_cents, 243000);
+assert.equal(withNext.burndown[29].remaining_cents, 250000);
 
 console.log("cards.test.ts ✓");

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { brlToCents, centsToBRL, type Streak, type Summary } from "@meridian/core/budget";
 import { CATEGORIES } from "@meridian/core/categorize";
 import type { Anomaly, GoalView, MonthForecast, Pace, Projection } from "@meridian/core/insights";
-import { interestOf, invoiceMonth } from "@meridian/core/cards";
+import { interestOf, invoiceMonth, type CardPool } from "@meridian/core/cards";
 import { formatGrams, perKgCents, toGrams, type CutRow, type MeatTotals } from "@meridian/core/meat";
 import { Badge } from "@meridian/ui/components/badge";
 
@@ -29,6 +29,7 @@ interface ApiInvoice {
   itemized_cents: number; installments_cents: number; reserve_cents: number;
   expected_cents: number; total_cents: number | null; paid: boolean;
   unitemized_cents: number | null; limit_cents: number | null; used_cents: number;
+  due_cents: number; // what the invoice adds to Contas beyond the card bills already listed
 }
 // `forecast` is the months ahead; today only `lines` renders it. It's in the
 // payload so a panel can use the numbers without a second roundtrip.
@@ -49,6 +50,9 @@ interface MonthData {
   month: string; incomes: ApiIncome[]; bills: ApiBill[]; spends: ApiSpend[];
   summary: Summary; streak: Streak; goals: GoalView[]; insights: ApiInsights;
   cards: ApiCard[]; invoices: ApiInvoice[]; meat: ApiMeat; wishlist: ApiWish[];
+  // Regime de fatura (packages/core/src/cards.ts). `hero` is what the big number
+  // and the burndown read: the card pool when there are cards, `summary` otherwise.
+  hero: Summary; pool: CardPool | null;
 }
 
 // Shared <datalist> for every category input. Native autocomplete over a known
@@ -69,6 +73,10 @@ function monthLabel(m: string) {
   const [y, mm] = m.split("-").map(Number);
   const s = new Date(y, mm - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function monthShort(m: string) {
+  const [y, mm] = m.split("-").map(Number);
+  return new Date(y, mm - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
 }
 function todayISO() {
   const d = new Date();
@@ -244,10 +252,10 @@ function PaceLine({ pace }: { pace: Pace }) {
 }
 
 // ---- metric tile ----
-function Metric({ label, value, tone }: { label: string; value: string; tone?: "mint" | "rose" }) {
+function Metric({ label, value, tone, title }: { label: string; value: string; tone?: "mint" | "rose"; title?: string }) {
   const color = tone === "mint" ? "text-primary" : tone === "rose" ? "text-destructive" : "";
   return (
-    <div className="border-border border-t px-4 py-3 sm:border-t-0 sm:border-l first:border-l-0">
+    <div title={title} className="border-border border-t px-4 py-3 sm:border-t-0 sm:border-l first:border-l-0">
       <p className="eyebrow">{label}</p>
       <p className={`tnum mt-1 text-lg font-semibold tracking-[-0.01em] ${color}`}>{value}</p>
     </div>
@@ -287,6 +295,8 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
   }, [month, refresh, notify]);
 
   const s = data.summary;
+  const h = data.hero;
+  const pool = data.pool;
   const ins = data.insights;
   const groups = useMemo(() => {
     const map = new Map<string, ApiBill[]>();
@@ -342,7 +352,12 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="eyebrow">Você pode gastar hoje</p>
+                  <p className="eyebrow"
+                    title={pool
+                      ? "A compra de hoje no cartão cai na fatura do mês seguinte. Este número é o que o mês seguinte tem livre depois das contas dele e do que já está na fatura, dividido pelos dias que faltam."
+                      : undefined}>
+                    {pool ? "Cabe no cartão hoje" : "Você pode gastar hoje"}
+                  </p>
                   {/* 0 is a scolding, not information — it doesn't render. */}
                   {data.streak.days > 0 && (
                     <Badge variant="outline" className="border-primary/30 text-primary gap-1"
@@ -352,39 +367,49 @@ export default function BudgetApp({ initial, username }: { initial: MonthData; u
                     </Badge>
                   )}
                 </div>
-                <p className={`tnum mt-2 text-5xl font-semibold tracking-[-0.03em] sm:text-6xl ${s.per_day_cents < 0 ? "text-destructive" : "text-primary"}`}>
-                  {centsToBRL(s.per_day_cents)}
+                <p className={`tnum mt-2 text-5xl font-semibold tracking-[-0.03em] sm:text-6xl ${h.per_day_cents < 0 ? "text-destructive" : "text-primary"}`}>
+                  {centsToBRL(h.per_day_cents)}
                 </p>
                 <p className="text-muted-foreground mt-3 text-sm">
-                  <span className="tnum">{s.days_remaining}</span> {s.days_remaining === 1 ? "dia restante" : "dias restantes"} ·
-                  baseline <span className="tnum">{centsToBRL(s.per_day_start_cents)}</span>/dia
+                  <span className="tnum">{h.days_remaining}</span> {h.days_remaining === 1 ? "dia restante" : "dias restantes"} ·
+                  baseline <span className="tnum">{centsToBRL(h.per_day_start_cents)}</span>/dia
                 </p>
+                {pool && (
+                  <p className="text-muted-foreground mt-1.5 text-xs">
+                    Fatura de {monthLabel(pool.month).toLowerCase()}: <span className="tnum text-foreground">{centsToBRL(pool.remaining_cents)}</span> livres
+                    de <span className="tnum">{centsToBRL(pool.start_cents)}</span>
+                    {pool.projected ? " (mês ainda não gerado: previsto pelas contas de hoje)" : ""}.
+                    {pool.hole_cents > 0 && <> Já descontados <span className="tnum">{centsToBRL(pool.hole_cents)}</span> que faltam para fechar este mês.</>}
+                  </p>
+                )}
               </div>
               <div>
                 <div className="h-36 sm:h-40">
-                  <Burndown summary={s} month={month} projection={ins.projection} />
+                  <Burndown summary={h} month={month} projection={ins.projection} />
                 </div>
                 {ins.pace && <PaceLine pace={ins.pace} />}
               </div>
             </div>
             <div className={`border-border mt-6 grid grid-cols-2 rounded-lg border ${data.cards.length ? "sm:grid-cols-6" : "sm:grid-cols-5"}`}>
               <Metric label="Entrada" value={centsToBRL(s.income_cents)} />
-              <Metric label="Comprometido" value={centsToBRL(s.committed_cents)} />
+              <Metric label="Comprometido" value={centsToBRL(s.committed_cents)}
+                title={pool ? "Contas do mês mais as faturas dos cartões que vencem nele." : undefined} />
               <Metric label="Sobra" value={centsToBRL(s.sobra_cents)} tone={s.sobra_cents < 0 ? "rose" : "mint"} />
-              <Metric label="Gasto no mês" value={centsToBRL(s.spent_cents)} />
+              {/* With cards the month's purchases split in two: what went on a card
+                  (weighs on the invoice, not here) and what was paid à vista. */}
+              {pool && <Metric label="No cartão" value={centsToBRL(s.card_spent_cents)}
+                title="Compras feitas no cartão neste mês. Cada uma pesa no mês em que a fatura dela vence." />}
+              <Metric label={pool ? "À vista" : "Gasto no mês"} value={centsToBRL(s.spent_cents)} />
               <Metric label="A pagar" value={centsToBRL(s.unpaid_cents)} tone={s.unpaid_cents > 0 ? "rose" : undefined} />
-              {/* only once a card exists — otherwise it's the same number as
-                  Comprometido and would just be visual noise. */}
-              {data.cards.length > 0 && <Metric label="Sai da conta" value={centsToBRL(s.cash_out_cents)} />}
             </div>
             <InsightsPanel lines={ins.lines} />
           </section>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <BillsPanel month={month} groups={groups} incomes={data.incomes} cards={data.cards} act={act} />
+            <BillsPanel month={month} groups={groups} incomes={data.incomes} cards={data.cards} invoices={data.invoices} act={act} />
             <div className="flex flex-col gap-6">
-              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} summary={s}
-                notify={notify} cards={data.cards} cardsById={cardsById} />
+              <DailyPanel month={month} spends={data.spends} anomalies={ins.anomalies} act={act} summary={h}
+                pool={pool} notify={notify} cards={data.cards} cardsById={cardsById} />
               <CategoryBreakdown data={s.by_category} rows={[...data.bills, ...data.spends]} />
             </div>
           </div>
@@ -439,11 +464,14 @@ function EmptyMonth({ month, onRollover, onSeedIncome, busy }: {
 }
 
 // ---- bills ----
-function BillsPanel({ month, groups, incomes, cards, act }: {
-  month: string; groups: [string, ApiBill[]][]; incomes: ApiIncome[]; cards: ApiCard[];
+function BillsPanel({ month, groups, incomes, cards, invoices, act }: {
+  month: string; groups: [string, ApiBill[]][]; incomes: ApiIncome[]; cards: ApiCard[]; invoices: ApiInvoice[];
   act: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  // The invoices due this month are Contas too. due_cents leaves out the bills
+  // already listed below with that card, so nothing shows up twice.
+  const due = invoices.filter((i) => i.due_cents !== 0);
   // Reconciling a bill (filling its real amount) turns closing the month into a
   // bar with an end. `actual_cents != null` is the whole definition.
   const total = groups.reduce((a, [, bs]) => a + bs.length, 0);
@@ -486,6 +514,44 @@ function BillsPanel({ month, groups, incomes, cards, act }: {
       </div>
 
       {adding && <AddBill month={month} onDone={() => setAdding(false)} act={act} />}
+
+      {due.length > 0 && (
+        <div>
+          <div className="bg-surface-1/40 border-border flex items-center justify-between border-b px-4 py-1.5">
+            <span className="eyebrow" title="O que foi gasto em cada cartão e vence neste mês. O detalhe e o valor do extrato ficam em Cartões.">Faturas dos cartões</span>
+            <span className="tnum text-muted-foreground text-xs">{centsToBRL(due.reduce((a, i) => a + i.due_cents, 0))}</span>
+          </div>
+          {due.map((inv) => {
+            const dueDay = cards.find((c) => c.id === inv.card_id)?.due_day ?? null;
+            const badge = dueBadge(month, dueDay, inv.paid);
+            return (
+              <div key={inv.card_id} className="border-border hover:bg-white/[0.02] flex items-center gap-3 border-b px-4 py-2">
+                <button
+                  aria-label={inv.paid ? `marcar a fatura ${inv.card_label} como pendente` : `marcar a fatura ${inv.card_label} como paga`}
+                  onClick={() => act(() => api("/api/invoices", "POST",
+                    { card_id: inv.card_id, month, total_cents: inv.total_cents, paid: !inv.paid }))}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border text-[11px] ${
+                    inv.paid ? "bg-primary text-primary-foreground border-transparent" : "border-input text-transparent"
+                  }`}
+                >✓</button>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className={`truncate text-sm ${inv.paid ? "text-muted-foreground line-through" : ""}`}>Fatura {inv.card_label}</span>
+                  {dueDay != null && (
+                    <span className="border-border tnum text-muted-foreground shrink-0 rounded-full border px-1.5 text-[10px]">dia {dueDay}</span>
+                  )}
+                  {badge && (
+                    <span className={`shrink-0 rounded-full border px-1.5 text-[10px] ${
+                      badge.rose ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"
+                    }`}>{badge.text}</span>
+                  )}
+                  <span className="text-muted-foreground shrink-0 text-[10px]">{inv.total_cents != null ? "extrato" : "pelos gastos lançados"}</span>
+                </div>
+                <span className="tnum shrink-0 pr-[3.25rem] text-sm">{centsToBRL(inv.due_cents)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {groups.map(([cat, bills]) => {
         const subtotal = bills.reduce((a, b) => a + (b.actual_cents ?? b.planned_cents), 0);
@@ -1419,10 +1485,11 @@ function Trends() {
 }
 
 // ---- daily log ----
-function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, cardsById }: {
+const LAST_CARD = "meridian:last-card";
+function DailyPanel({ month, spends, anomalies, act, summary, pool, notify, cards, cardsById }: {
   month: string; spends: ApiSpend[]; anomalies: Anomaly[];
   act: (fn: () => Promise<unknown>) => Promise<void>;
-  summary: Summary; notify: (msg: string, tone?: "info" | "error") => void;
+  summary: Summary; pool: CardPool | null; notify: (msg: string, tone?: "info" | "error") => void;
   cards: ApiCard[]; cardsById: Map<number, ApiCard>;
 }) {
   const inMonth = todayISO().startsWith(month) ? todayISO() : `${month}-01`;
@@ -1430,10 +1497,25 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, car
   const [amount, setAmount] = useState("");
   const [cat, setCat] = useState("");
   const [note, setNote] = useState("");
-  const [cardId, setCardId] = useState("");
+  // A house that lives on credit shouldn't have "caixa" as the default: start on
+  // the card used last (remembered per browser), else the first one.
+  const [cardId, setCardId] = useState(cards.length ? String(cards[0].id) : "");
+  useEffect(() => {
+    try {
+      const last = localStorage.getItem(LAST_CARD);
+      if (last != null && (last === "" || cards.some((c) => String(c.id) === last))) setCardId(last);
+    } catch { /* storage blocked: the default stands */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const pickCard = (v: string) => {
+    setCardId(v);
+    try { localStorage.setItem(LAST_CARD, v); } catch { /* same */ }
+  };
   useEffect(() => setDate(todayISO().startsWith(month) ? todayISO() : `${month}-01`), [month]);
 
   const flagged = useMemo(() => new Map(anomalies.map((a) => [a.id, a])), [anomalies]);
+  const card = cardId ? cardsById.get(Number(cardId)) : undefined;
+  const lands = card ? invoiceMonth(date, card.closing_day, card.due_day) : null;
 
   const submit = () => {
     const cents = brlToCents(amount);
@@ -1443,11 +1525,14 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, car
     // days_remaining drops by 1 and remaining drops by the amount, the same
     // formula summarize() uses, one day ahead.
     // ponytail: assumes no bill/income changes before midnight.
+    // With the card pool, `summary` is the pool: the same arithmetic holds for a
+    // purchase that lands on the pool's invoice. One that lands on this month's
+    // invoice comes out of the month's sobra instead, so there is nothing to show.
     const d = summary.days_remaining - 1;
-    if (d >= 1 && date.startsWith(month)) {
+    if (d >= 1 && date.startsWith(month) && (!pool || lands === pool.month)) {
       const before = Math.floor(summary.remaining_cents / d);
       const after = Math.floor((summary.remaining_cents - cents) / d);
-      notify(`Mesada de amanhã: ${centsToBRL(before)} → ${centsToBRL(after)}`, "info");
+      notify(`${pool ? "Cabe no cartão amanhã" : "Mesada de amanhã"}: ${centsToBRL(before)} → ${centsToBRL(after)}`, "info");
     }
     // No category sent -> the server infers it from the note (src/lib/categorize.ts).
     act(() => api("/api/spends", "POST", {
@@ -1474,15 +1559,20 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, car
             onKeyDown={(e) => e.key === "Enter" && submit()} className={`${INPUT} flex-1`} />
           {/* only appears once a card exists — nothing changes for cash-only users */}
           {cards.length > 0 && (
-            <select aria-label="cartão" value={cardId} onChange={(e) => setCardId(e.target.value)}
+            <select aria-label="cartão" value={cardId} onChange={(e) => pickCard(e.target.value)}
               className={`${INPUT} w-24 shrink-0`}>
-              <option value="">caixa</option>
+              <option value="">à vista</option>
               {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           )}
           <button onClick={submit}
             className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 shrink-0 items-center rounded-md px-3 text-sm">Lançar</button>
         </div>
+        {card && lands && (
+          <p className="text-muted-foreground text-xs">
+            Cai na fatura de {monthLabel(lands).toLowerCase()} do {card.label} (vence dia <span className="tnum">{card.due_day}</span>).
+          </p>
+        )}
       </div>
       <div className="border-border border-t">
         {spends.length === 0 ? (
@@ -1512,8 +1602,22 @@ function DailyPanel({ month, spends, anomalies, act, summary, notify, cards, car
                     aria-label={`fora do padrão de ${odd.category}, mediana ${centsToBRL(odd.median_cents)}`}
                     title={`Fora do padrão de ${odd.category} — mediana ${centsToBRL(odd.median_cents)}`}>⚠</span>
                 )}
-                {sp.card_id != null && (
-                  <span className="text-muted-foreground shrink-0 text-[10px]">{cardsById.get(sp.card_id)?.label ?? "cartão"}</span>
+                {/* The card is editable for the same reason the category is: a
+                    spend on the wrong card lands on the wrong invoice. */}
+                {cards.length > 0 && (
+                  <select aria-label={`cartão do gasto de ${sp.spent_on}`} value={sp.card_id ?? ""}
+                    onChange={(e) => act(() => api(`/api/spends/${sp.id}`, "PATCH",
+                      { card_id: e.target.value ? Number(e.target.value) : null }))}
+                    className="text-muted-foreground hover:text-foreground max-w-24 shrink-0 bg-transparent text-[10px] outline-none">
+                    <option value="">à vista</option>
+                    {cards.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                )}
+                {sp.card_id != null && cardsById.get(sp.card_id) && (
+                  <span className="border-border text-muted-foreground shrink-0 rounded-full border px-1.5 text-[10px]"
+                    title="Mês em que a fatura desta compra vence.">
+                    fatura {monthShort(invoiceMonth(sp.spent_on, cardsById.get(sp.card_id)!.closing_day, cardsById.get(sp.card_id)!.due_day))}
+                  </span>
                 )}
                 <span className="min-w-0 truncate text-sm">{sp.note || "—"}</span>
               </div>

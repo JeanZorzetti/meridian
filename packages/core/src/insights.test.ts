@@ -119,6 +119,16 @@ const spend = (id: number, category: string, amount_cents: number): IdSpend =>
   assert.ok(lines.some((l) => l.includes("1 conta em aberto soma") && l.includes("vence dia 20")), "unpaid line");
 }
 {
+  // with the card pool, the lines talk about the invoice month, not the viewed month
+  const today = new Date(2026, 6, 10);
+  const spends: IdSpend[] = [{ id: 1, spent_on: "2026-07-05", amount_cents: 40000, category: "Mercado & Casa" }];
+  const s = sum(spends, today);
+  const p = project(s, "2026-07", today);
+  const lines = insights(s, bills, p, [], [], "2026-07", today, { pool_month: "2026-08" });
+  assert.ok(lines.some((l) => l.includes("no cartão") && l.includes("fatura de agosto")), "pool projection line");
+  assert.ok(!lines.some((l) => l.includes("fecha julho")), "no month-close phrasing in pool mode");
+}
+{
   // a bill already past its due day is not "a próxima a vencer"
   const today = new Date(2026, 6, 25); // day 25 > due_day 20
   const s = sum([], today);
@@ -293,4 +303,13 @@ assert.equal(categorize("Aluguel"), "Contas fixas");
 assert.equal(categorize("supermercado"), "Mercado & Casa");
 assert.equal(categorize("qualquer coisa"), "Pessoal");
 
+{
+  // the forecast line for the pool's own month gives way to the pool line
+  const today = new Date(2026, 6, 10);
+  const s = sum([], today);
+  const fcs = forecast([fb(500000)], 750000, [100000, 200000, 300000], [], "2026-07", 2);
+  const withFc = insights(s, bills, null, [], fcs, "2026-07", today, { pool_month: "2026-08" });
+  assert.ok(!withFc.some((l) => l.startsWith("Agosto")), "no forecast line for the pool month");
+  assert.ok(withFc.some((l) => l.startsWith("Setembro")), "later months keep their line");
+}
 console.log("insights: ok");

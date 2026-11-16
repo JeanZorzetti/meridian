@@ -1,9 +1,9 @@
 import postgres from "postgres";
-import { streak, summarize, type MonthLedger } from "@meridian/core/budget";
+import { streak, type MonthLedger } from "@meridian/core/budget";
 import { buildModel, type CategoryModel } from "@meridian/core/categorize";
 import { anomalies, forecast, goalProgress, insights, pace, project, type Goal } from "@meridian/core/insights";
 import { cutPanel, meatBudgetCents, meatTotals, type MeatCut, type MeatPurchase, type MeatTarget } from "@meridian/core/meat";
-import { applyCreditCost, deriveInvoice, type Card, type Invoice } from "@meridian/core/cards";
+import { cardPool, deriveInvoice, invoiceMonth, poolAsSummary, summarizeWithCards, type Card, type CardPool, type Invoice } from "@meridian/core/cards";
 
 // Server-only. `import.meta.env` is Vite's, populated from .env by Astro in
 // dev/build; it is undefined when this module is imported from a plain node
@@ -239,8 +239,13 @@ export async function getMonthView(userId: number, month: string, today: Date) {
   const invoices: Invoice[] = cards.map((c: Card) =>
     deriveInvoice(c, month, history, snap.bills, invoiceRows.find((r) => r.card_id === c.id) ?? null),
   );
-  const summary = applyCreditCost(summarize(snap.incomes, snap.bills, snap.spends, month, today), snap.bills, invoices);
-  const projection = project(summary, month, today);
+  // Regime de fatura (cards.ts): the invoices due this month are in Contas, and a
+  // card purchase only weighs in the month its invoice is due.
+  const summary = summarizeWithCards(snap.incomes, snap.bills, snap.spends, invoices, month, today);
+  const pool = cards.length ? await getCardPool(userId, month, today, cards, history, snap, summary.remaining_cents) : null;
+  // What the hero reads: with cards, "how much still fits on the card"; without, the month's mesada.
+  const hero = pool ? poolAsSummary(summary, pool) : summary;
+  const projection = project(hero, month, today);
   const anoms = anomalies(history, snap.spends);
 
   // Every spend under the month it belongs to — feeds the forecast's band and
@@ -293,13 +298,61 @@ export async function getMonthView(userId: number, month: string, today: Date) {
     goals: goalProgress([...goals], netByMonth, fc, month),
     cards,
     invoices,
+    hero,
+    pool,
     meat,
     wishlist,
     insights: {
-      projection, anomalies: anoms, forecast: fc, pace: pace(summary, month, today),
-      lines: insights(summary, snap.bills, projection, anoms, fc, month, today),
+      projection, anomalies: anoms, forecast: fc, pace: pace(hero, month, today),
+      // Unpaid invoices count as open bills, due on their card's day.
+      lines: insights(hero, [
+        ...snap.bills,
+        ...invoices.filter((i) => i.due_cents > 0).map((i) => ({
+          planned_cents: i.due_cents, actual_cents: null, paid: i.paid,
+          due_day: cards.find((c) => c.id === i.card_id)?.due_day ?? null,
+        })),
+      ], projection, anoms, fc, month, today, { pool_month: pool?.month }),
     },
   };
+}
+
+function nextMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** cardPool() for `month`: what next month has free for today's card purchases.
+ *  Next month is read from its rows when it has any; otherwise projected the way
+ *  rolloverMonth() would build it (same incomes, recurring bills, installments
+ *  advanced — forecast()'s month-ahead committed). */
+async function getCardPool(
+  userId: number, month: string, today: Date, cards: DbCard[], history: DbSpend[],
+  snap: Awaited<ReturnType<typeof getMonthSnapshot>>, month_remaining_cents: number,
+): Promise<CardPool> {
+  const next = nextMonth(month);
+  const [nextSnap, nextRows] = await Promise.all([getMonthSnapshot(userId, next), getInvoiceRows(userId, next)]);
+  const projected = nextSnap.bills.length === 0 && nextSnap.incomes.length === 0;
+  const cost = (b: { planned_cents: number; actual_cents: number | null }) => b.actual_cents ?? b.planned_cents;
+
+  let next_before_cents: number;
+  if (projected) {
+    const income = snap.incomes.reduce((a, i) => a + i.amount_cents, 0);
+    next_before_cents = income - forecast(snap.bills, income, [], [], month, 1)[0].committed_cents;
+  } else {
+    next_before_cents = nextSnap.incomes.reduce((a, i) => a + i.amount_cents, 0)
+      - nextSnap.bills.reduce((a, b) => a + cost(b), 0)
+      - nextSnap.spends.filter((s) => s.card_id == null).reduce((a, s) => a + s.amount_cents, 0);
+  }
+  const next_due_cents = cards
+    .map((c) => deriveInvoice(c, next, history, projected ? [] : nextSnap.bills, nextRows.find((r) => r.card_id === c.id) ?? null))
+    .reduce((a, i) => a + i.due_cents, 0);
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const landing = history.filter((s) => {
+    const c = s.card_id == null ? undefined : byId.get(s.card_id);
+    return !!c && invoiceMonth(s.spent_on, c.closing_day, c.due_day) === next;
+  });
+  return cardPool({ month, today, month_remaining_cents, next_month: next, projected, next_before_cents, next_due_cents, landing });
 }
 
 /** Generate `to` from `from`: copy incomes + recurring bills, advancing

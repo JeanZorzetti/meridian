@@ -35,6 +35,7 @@ export interface Summary {
   // to committed_cents / zero, so a user who never touches cards sees no change.
   cash_out_cents: number; // liquidity view — committed_cents with card bills swapped for their invoice's real/expected total
   interest_cents: number; // juros/tarifas embutidos nas parcelas financiadas deste mês
+  card_spent_cents: number; // compras no cartão feitas no mês (pesam na fatura, não aqui) — 0 sem cartão
 }
 
 /** "R$ 6.328,18" | " R$  -   " | "-R$ 852,39" -> integer cents. */
@@ -212,5 +213,6 @@ export function summarize(
     by_category,
     cash_out_cents: committed_cents,
     interest_cents: 0,
+    card_spent_cents: 0,
   };
 }

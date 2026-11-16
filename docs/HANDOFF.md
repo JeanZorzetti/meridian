@@ -20,6 +20,15 @@
 > abas `carne NOV 2026` (562 kg a R$ 0) e as de 2026 anteriores a setembro não têm
 > lançamento real e não foram importadas. A aba «Compras» ficou de fora a pedido.
 
+> **Também em 2026-11-15 — regime de fatura e dezembro.** O dono vive no cartão
+> de crédito, e a entrada paga as faturas. O gasto no cartão passou a pesar no mês em
+> que a fatura vence; as faturas entram em Contas; o número grande virou «cabe no
+> cartão hoje» (ver Deploy no `CLAUDE.md`). Dados: os 5 gastos de 04 a 09/11 sem cartão
+> foram para o BB Visa (resposta do dono); a conta «cartão bb dia 21» (R$ 837,35) de
+> novembro virou o extrato da fatura de nov do BB Elo e saiu das Contas; dezembro foi
+> gerado de novembro sem a «Entrada (Presente)» e sem «pag do bancos nubank». Backup
+> antes disso: `/root/meridian-20261115-antes-dezembro.sql` na VPS.
+
 **Última atualização:** 2026-08-16
 **Estado:** no ar, estável e verificado rota por rota. Migração `0001` aplicada
 no banco de produção, e confirmado que o container fala com o banco. **A migração

@@ -86,6 +86,16 @@ The old EasyPanel services (site and database) were removed, and their data went
 with them: this database started empty on 2026-11-15, with migration `0001` and
 the seeded admin.
 
+**Regime de fatura (2026-11-15)** — a casa vive no cartão de crédito: a entrada do
+mês paga as faturas. Um gasto com `card_id` não pesa no dia da compra, pesa no mês em
+que a fatura dele vence (`invoiceMonth()`). `summarizeWithCards()` (`packages/core/src/cards.ts`)
+põe as faturas do mês em Contas (`due_cents` = fatura − parcelas do cartão já listadas,
+para não contar duas vezes) e só desconta na hora o gasto à vista. Com cartão cadastrado,
+o número grande do painel é `cardPool()`: «cabe no cartão hoje» = o que o mês seguinte
+tem livre depois das contas dele e do que já está na fatura, ÷ dias restantes (`hero`
+no payload; `summary` continua sendo o caixa do mês). Tendência, metas, sequência e
+previsão seguem por competência (cada compra no mês em que foi feita).
+
 **Telas Carnes e Lista de prioridades (2026-11-15)** — vivem no `BudgetApp.tsx`
 das duas apps (seções «Carnes», dentro do mês, ligada à conta «Carnes», e «Lista de
 prioridades», fora do mês como as Metas). As contas são de `packages/core/src/meat.ts`
